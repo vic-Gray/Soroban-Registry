@@ -150,17 +150,17 @@ impl CacheLayer {
         if !self.config.enabled {
             return (None, false);
         }
-        
+
         let namespaced_key = format!("{}:{}", ns, key);
         let result = self.generic_cache.get(&namespaced_key).await;
         let hit = result.is_some();
-        
+
         if hit {
             crate::metrics::CACHE_HITS.inc();
         } else {
             crate::metrics::CACHE_MISSES.inc();
         }
-        
+
         (result, hit)
     }
 
@@ -168,9 +168,9 @@ impl CacheLayer {
         if !self.config.enabled {
             return;
         }
-        
+
         let namespaced_key = format!("{}:{}", ns, key);
-        
+
         // Note: moka doesn't support per-entry TTL easily, so we use the cache-wide TTL
         // For custom TTL support, we'd need to use entry_by_ref with expiration policy
         // For now, we'll insert with the default TTL configured for generic_cache
@@ -181,7 +181,7 @@ impl CacheLayer {
         if !self.config.enabled {
             return;
         }
-        
+
         let namespaced_key = format!("{}:{}", ns, key);
         self.generic_cache.invalidate(&namespaced_key).await;
     }
@@ -369,7 +369,7 @@ mod tests {
             .put("system", "key1", "value1".to_string(), None)
             .await;
         let (val, hit) = cache.get("system", "key1").await;
-        
+
         assert!(val.is_none());
         assert!(!hit);
     }

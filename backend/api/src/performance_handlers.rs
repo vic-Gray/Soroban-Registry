@@ -63,9 +63,18 @@ pub async fn record_metric(
     .bind(&req.metric_type)
     .bind(req.function_name.as_deref())
     .bind(rust_decimal::Decimal::try_from(req.value).unwrap_or_default())
-    .bind(req.p50.map(|v| rust_decimal::Decimal::try_from(v).unwrap_or_default()))
-    .bind(req.p95.map(|v| rust_decimal::Decimal::try_from(v).unwrap_or_default()))
-    .bind(req.p99.map(|v| rust_decimal::Decimal::try_from(v).unwrap_or_default()))
+    .bind(
+        req.p50
+            .map(|v| rust_decimal::Decimal::try_from(v).unwrap_or_default()),
+    )
+    .bind(
+        req.p95
+            .map(|v| rust_decimal::Decimal::try_from(v).unwrap_or_default()),
+    )
+    .bind(
+        req.p99
+            .map(|v| rust_decimal::Decimal::try_from(v).unwrap_or_default()),
+    )
     .bind(&req.metadata)
     .fetch_one(&state.db)
     .await
@@ -85,12 +94,9 @@ pub async fn list_metrics(
     let offset = params.offset.max(0);
 
     // Build dynamic query filters
-    let mut query = String::from(
-        "SELECT * FROM performance_metrics WHERE contract_id = $1",
-    );
-    let mut count_query = String::from(
-        "SELECT COUNT(*) FROM performance_metrics WHERE contract_id = $1",
-    );
+    let mut query = String::from("SELECT * FROM performance_metrics WHERE contract_id = $1");
+    let mut count_query =
+        String::from("SELECT COUNT(*) FROM performance_metrics WHERE contract_id = $1");
 
     if let Some(ref mt) = params.metric_type {
         let clause = format!(" AND metric_type::text = '{}'", mt.replace('\'', "''"));
@@ -138,12 +144,9 @@ pub async fn list_anomalies(
     let limit = params.limit.clamp(1, 100);
     let offset = params.offset.max(0);
 
-    let mut query = String::from(
-        "SELECT * FROM performance_anomalies WHERE contract_id = $1",
-    );
-    let mut count_query = String::from(
-        "SELECT COUNT(*) FROM performance_anomalies WHERE contract_id = $1",
-    );
+    let mut query = String::from("SELECT * FROM performance_anomalies WHERE contract_id = $1");
+    let mut count_query =
+        String::from("SELECT COUNT(*) FROM performance_anomalies WHERE contract_id = $1");
 
     if let Some(resolved) = params.resolved {
         let clause = format!(" AND resolved = {}", resolved);
@@ -191,12 +194,9 @@ pub async fn list_alerts(
     let limit = params.limit.clamp(1, 100);
     let offset = params.offset.max(0);
 
-    let mut query = String::from(
-        "SELECT * FROM performance_alerts WHERE contract_id = $1",
-    );
-    let mut count_query = String::from(
-        "SELECT COUNT(*) FROM performance_alerts WHERE contract_id = $1",
-    );
+    let mut query = String::from("SELECT * FROM performance_alerts WHERE contract_id = $1");
+    let mut count_query =
+        String::from("SELECT COUNT(*) FROM performance_alerts WHERE contract_id = $1");
 
     if let Some(resolved) = params.resolved {
         let clause = format!(" AND resolved = {}", resolved);
@@ -290,10 +290,9 @@ pub async fn resolve_alert(
     .fetch_one(&state.db)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => ApiError::not_found(
-            "AlertNotFound",
-            "No unresolved alert found with this ID",
-        ),
+        sqlx::Error::RowNotFound => {
+            ApiError::not_found("AlertNotFound", "No unresolved alert found with this ID")
+        }
         _ => db_err("resolve alert", e),
     })?;
 
@@ -361,12 +360,13 @@ pub async fn list_trends(
     let limit = params.limit.clamp(1, 100);
     let offset = params.offset.max(0);
 
-    let mut query = String::from(
-        "SELECT * FROM performance_trends WHERE contract_id = $1",
-    );
+    let mut query = String::from("SELECT * FROM performance_trends WHERE contract_id = $1");
 
     if let Some(ref mt) = params.metric_type {
-        query.push_str(&format!(" AND metric_type::text = '{}'", mt.replace('\'', "''")));
+        query.push_str(&format!(
+            " AND metric_type::text = '{}'",
+            mt.replace('\'', "''")
+        ));
     }
 
     query.push_str(&format!(
@@ -448,10 +448,7 @@ pub async fn get_performance_summary(
 
 fn parse_uuid(id: &str, label: &str) -> Result<Uuid, ApiError> {
     Uuid::parse_str(id).map_err(|_| {
-        ApiError::bad_request(
-            "InvalidId",
-            format!("Invalid {} ID format: {}", label, id),
-        )
+        ApiError::bad_request("InvalidId", format!("Invalid {} ID format: {}", label, id))
     })
 }
 

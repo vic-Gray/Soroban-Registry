@@ -17,11 +17,10 @@ use axum::{
 };
 
 use crate::{
-    ab_test_handlers, activity_feed_handlers, batch_verify_handlers, breaking_changes,
-    canary_handlers, compatibility_testing_handlers, custom_metrics_handlers,
-    deprecation_handlers, handlers, auth, metrics_handler, migration_handlers,
-    performance_handlers, simulation_handlers, state::AppState,
-  main
+    ab_test_handlers, activity_feed_handlers, auth, batch_verify_handlers, breaking_changes,
+    canary_handlers, compatibility_testing_handlers, custom_metrics_handlers, deprecation_handlers,
+    handlers, metrics_handler, migration_handlers, performance_handlers, simulation_handlers,
+    state::AppState,
 };
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -264,10 +263,7 @@ pub fn canary_routes() -> Router<AppState> {
             get(canary_handlers::list_canaries).post(canary_handlers::create_canary),
         )
         // Canary-specific endpoints
-        .route(
-            "/api/canary/:canary_id",
-            get(canary_handlers::get_canary),
-        )
+        .route("/api/canary/:canary_id", get(canary_handlers::get_canary))
         .route(
             "/api/canary/:canary_id/advance",
             post(canary_handlers::advance_canary),
@@ -282,8 +278,7 @@ pub fn canary_routes() -> Router<AppState> {
         )
         .route(
             "/api/canary/:canary_id/metrics",
-            get(canary_handlers::list_canary_metrics)
-                .post(canary_handlers::record_canary_metric),
+            get(canary_handlers::list_canary_metrics).post(canary_handlers::record_canary_metric),
         )
 }
 
@@ -295,10 +290,7 @@ pub fn ab_test_routes() -> Router<AppState> {
             get(ab_test_handlers::list_ab_tests).post(ab_test_handlers::create_ab_test),
         )
         // A/B test-specific endpoints
-        .route(
-            "/api/ab-tests/:test_id",
-            get(ab_test_handlers::get_ab_test),
-        )
+        .route("/api/ab-tests/:test_id", get(ab_test_handlers::get_ab_test))
         .route(
             "/api/ab-tests/:test_id/start",
             post(ab_test_handlers::start_ab_test),
@@ -326,8 +318,7 @@ pub fn performance_routes() -> Router<AppState> {
         // Contract-scoped performance endpoints
         .route(
             "/api/contracts/:id/perf/metrics",
-            get(performance_handlers::list_metrics)
-                .post(performance_handlers::record_metric),
+            get(performance_handlers::list_metrics).post(performance_handlers::record_metric),
         )
         .route(
             "/api/contracts/:id/perf/anomalies",

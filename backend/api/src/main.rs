@@ -33,29 +33,11 @@ pub mod request_tracing;
 mod routes;
 pub mod security_log;
 pub mod signing_handlers;
+mod simulation;
+mod simulation_handlers;
 mod state;
 mod type_safety;
 mod validation;
-mod cache;
-mod metrics;
-mod metrics_handler;
-mod analytics;
-mod breaking_changes;
-mod custom_metrics_handlers;
-mod dependency;
-mod deprecation_handlers;
-pub mod health_monitor;
-pub mod request_tracing;
-pub mod signing_handlers;
-mod type_safety;
-mod openapi;
-// mod auth;
-// mod auth_handlers;
-// mod resource_handlers;
-// mod resource_tracking;
-
-mod simulation;
-mod simulation_handlers;
 
 use anyhow::Result;
 use axum::extract::{Request, State};
@@ -227,6 +209,7 @@ openapi-doc
         .merge(routes::canary_routes())
         .merge(routes::ab_test_routes())
         .merge(routes::performance_routes())
+        .merge(routes::observability_routes())
         .merge(release_notes_routes::release_notes_routes())
         .nest("/api", activity_feed_routes::routes())
         .fallback(handlers::route_not_found)
@@ -248,8 +231,12 @@ openapi-doc
         .layer(cors)
         .with_state(state.clone());
 
-    // Start server
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3001));
+    // Start server (port configurable via PORT env var, default 3001)
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3001);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tracing::info!("API server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

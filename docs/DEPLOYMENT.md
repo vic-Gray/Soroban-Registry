@@ -1,6 +1,6 @@
 # Soroban Registry — Deployment Guide
 
-> **Audience:** DevOps engineers, platform teams, and developers running the system locally or in production.  
+> **Audience:** DevOps engineers, platform teams, and developers running the system locally or in production.
 > **Goal:** Provide clear, reproducible steps for every deployment scenario.
 
 ---
@@ -53,7 +53,7 @@ cargo install sqlx-cli --no-default-features --features postgres
 | `OTLP_ENDPOINT` | — | No | OpenTelemetry collector endpoint (e.g. `http://jaeger:4317`) |
 | `CACHE_ENABLED` | `true` | No | Enable in-process Moka cache |
 | `CACHE_MAX_CAPACITY` | `10000` | No | Max weighted entries per cache |
-| `PORT` | `3001` | No | HTTP listen port |
+| `PORT` | `3001` | No | HTTP listen port (server reads PORT env var, falls back to 3001) |
 
 ### 2.2 Blockchain Indexer (`backend/indexer`)
 
@@ -478,10 +478,10 @@ The API is **stateless** — the only shared state is `AppState` which holds:
 - A `PgPool` (connection pooled, safe for multiple replicas)
 - A `CacheLayer` (per-process, in-memory — not shared across replicas)
 
-**Horizontal scaling:**  
+**Horizontal scaling:**
 Multiple API replicas can be placed behind a load balancer. The in-process cache is local to each replica; cache warm-up happens organically through TTL-based population. This is acceptable for the current workload. If cache consistency across replicas becomes critical, migrate to a shared Redis cache.
 
-**Connection pool sizing:**  
+**Connection pool sizing:**
 PostgreSQL max connections = `replica_count × PgPool.max_connections`. Size `max_connections` accordingly:
 
 ```
@@ -535,5 +535,5 @@ Quick reference:
 ./scripts/disaster_recovery.sh
 ```
 
-**Recovery Time Objective (RTO):** target < 1 hour for full-service restoration.  
+**Recovery Time Objective (RTO):** target < 1 hour for full-service restoration.
 **Recovery Point Objective (RPO):** target < 24 hours data loss (daily backup cadence).

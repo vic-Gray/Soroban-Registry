@@ -7,11 +7,13 @@ import ContractCardSkeleton from '@/components/ContractCardSkeleton';
 import LoadingSkeleton from '@/components/LoadingSkeleton';
 import { Search, Package, CheckCircle, Users, ArrowRight, Sparkles } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import Navbar from '@/components/Navbar';
 
 export default function Home() {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { logEvent } = useAnalytics();
@@ -33,7 +35,7 @@ export default function Home() {
         keyword: searchQuery.trim(),
         source: 'home_hero',
       });
-      window.location.href = `/contracts?query=${encodeURIComponent(searchQuery)}`;
+      router.push(`/contracts?query=${encodeURIComponent(searchQuery)}`);
     }
   };
 

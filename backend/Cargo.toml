@@ -76,3 +76,10 @@ syn = { version = "2.0", features = ["full", "visit"] }
 
 # WASM validation
 wasmparser = "0.224"
+
+# Decimal
+rust_decimal = "1.35"
+
+# OpenAPI
+utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "8", features = ["axum"] }

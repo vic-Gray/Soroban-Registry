@@ -4,6 +4,7 @@ mod ab_test_handlers;
 mod aggregation;
 mod analytics;
 mod auth;
+mod auth_handlers;
 mod batch_verify_handlers;
 mod breaking_changes;
 mod cache;
@@ -25,19 +26,23 @@ mod health_tests;
 mod metrics;
 mod metrics_handler;
 mod migration_handlers;
+#[cfg(feature = "openapi")]
+mod openapi;
 mod performance_handlers;
 mod rate_limit;
 mod release_notes_handlers;
 mod release_notes_routes;
 pub mod request_tracing;
+mod resource_handlers;
+mod resource_tracking;
 mod routes;
 pub mod security_log;
 pub mod signing_handlers;
+mod simulation;
+mod simulation_handlers;
 mod state;
 mod type_safety;
 mod validation;
-mod simulation;
-mod simulation_handlers;
 
 use anyhow::Result;
 use axum::extract::{Request, State};
@@ -135,9 +140,22 @@ async fn main() -> Result<()> {
         tracing::error!("Failed to register metrics: {}", e);
     }
 
+    // Job engine omitted: optional dependency; add soroban_batch and uncomment to enable.
+    // let (job_engine, job_rx) = soroban_batch::engine::JobEngine::new();
+    // let job_engine = Arc::new(job_engine);
+    // tokio::spawn(async move { job_engine.clone().run_worker(job_rx).await });
+
     // Create app state
     let is_shutting_down = Arc::new(AtomicBool::new(false));
-    let state = AppState::new(pool.clone(), registry, is_shutting_down.clone());
+background-job-queue
+  background-job-queue
+    let state = AppState::new(pool.clone(), registry, job_engine, is_shutting_down.clone());
+    
+openapi-doc
+ openapi-doc
+    let state = AppState::new(pool.clone(), registry, job_engine, is_shutting_down.clone());
+    
+
 
     // Spawn the background DB and cache monitoring task
     db_monitoring::spawn_db_monitoring_task(pool.clone(), state.cache.clone());
@@ -152,6 +170,7 @@ async fn main() -> Result<()> {
     // Warm up the cache
     state.cache.clone().warm_up(pool.clone());
 
+main
     let rate_limit_state = RateLimitState::from_env();
     rate_limit_state.spawn_eviction_task();
 
@@ -184,15 +203,19 @@ async fn main() -> Result<()> {
 
     // Build router
     let app = Router::new()
+        .merge(routes::auth_routes())
         .merge(routes::contract_routes())
         .merge(routes::publisher_routes())
         .merge(routes::health_routes())
+        .merge(routes::migration_routes())
+        .merge(routes::openapi_routes())
         .merge(routes::health_monitor_routes())
         .merge(routes::admin_routes())
         .merge(routes::compatibility_dashboard_routes())
         .merge(routes::canary_routes())
         .merge(routes::ab_test_routes())
         .merge(routes::performance_routes())
+        .merge(routes::observability_routes())
         .merge(release_notes_routes::release_notes_routes())
         .nest("/api", activity_feed_routes::routes())
         .fallback(handlers::route_not_found)
@@ -214,8 +237,12 @@ async fn main() -> Result<()> {
         .layer(cors)
         .with_state(state.clone());
 
-    // Start server
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3001));
+    // Start server (port configurable via PORT env var, default 3001)
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3001);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tracing::info!("API server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

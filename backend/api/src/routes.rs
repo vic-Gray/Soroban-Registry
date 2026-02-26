@@ -1,18 +1,29 @@
+#[cfg(feature = "openapi")]
+use crate::openapi;
+use crate::{
+    ab_test_handlers, activity_feed_handlers, auth, auth_handlers, batch_verify_handlers,
+    breaking_changes, canary_handlers, compatibility_testing_handlers, custom_metrics_handlers,
+    deprecation_handlers, handlers, metrics_handler, migration_handlers, performance_handlers,
+    resource_handlers, simulation_handlers, state::AppState,
+};
 use axum::{
     middleware,
     routing::{get, patch, post},
     Router,
 };
-
-use crate::{
-    ab_test_handlers, activity_feed_handlers, batch_verify_handlers, breaking_changes,
-    canary_handlers, compatibility_testing_handlers, custom_metrics_handlers,
-    deprecation_handlers, handlers, auth, metrics_handler, migration_handlers,
-    performance_handlers, simulation_handlers, state::AppState,
-};
+#[cfg(feature = "openapi")]
+use utoipa::OpenApi;
+#[cfg(feature = "openapi")]
+use utoipa_swagger_ui::SwaggerUi;
 
 pub fn observability_routes() -> Router<AppState> {
     Router::new().route("/metrics", get(metrics_handler::metrics_endpoint))
+}
+
+pub fn auth_routes() -> Router<AppState> {
+    Router::new()
+        .route("/api/auth/challenge", get(auth_handlers::get_challenge))
+        .route("/api/auth/verify", post(auth_handlers::verify_challenge))
 }
 
 pub fn contract_routes() -> Router<AppState> {
@@ -125,6 +136,10 @@ pub fn contract_routes() -> Router<AppState> {
                 .post(custom_metrics_handlers::record_contract_metric),
         )
         .route(
+            "/api/contracts/:id/resources",
+            get(resource_handlers::get_contract_resources),
+        )
+        .route(
             "/api/contracts/:id/metrics/batch",
             post(custom_metrics_handlers::record_metrics_batch),
         )
@@ -172,6 +187,18 @@ pub fn contract_routes() -> Router<AppState> {
     // TODO: backup_routes, notification_routes, and post_incident_routes
     // are available in the api library crate but need architectural refactoring
     // to be integrated with the main AppState
+}
+
+#[cfg(not(feature = "openapi"))]
+pub fn openapi_routes() -> Router<AppState> {
+    Router::new()
+}
+
+#[cfg(feature = "openapi")]
+pub fn openapi_routes() -> Router<AppState> {
+    Router::new().merge(
+        SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi::ApiDoc::openapi()),
+    )
 }
 
 pub fn publisher_routes() -> Router<AppState> {
@@ -244,10 +271,7 @@ pub fn canary_routes() -> Router<AppState> {
             get(canary_handlers::list_canaries).post(canary_handlers::create_canary),
         )
         // Canary-specific endpoints
-        .route(
-            "/api/canary/:canary_id",
-            get(canary_handlers::get_canary),
-        )
+        .route("/api/canary/:canary_id", get(canary_handlers::get_canary))
         .route(
             "/api/canary/:canary_id/advance",
             post(canary_handlers::advance_canary),
@@ -262,8 +286,7 @@ pub fn canary_routes() -> Router<AppState> {
         )
         .route(
             "/api/canary/:canary_id/metrics",
-            get(canary_handlers::list_canary_metrics)
-                .post(canary_handlers::record_canary_metric),
+            get(canary_handlers::list_canary_metrics).post(canary_handlers::record_canary_metric),
         )
 }
 
@@ -275,10 +298,7 @@ pub fn ab_test_routes() -> Router<AppState> {
             get(ab_test_handlers::list_ab_tests).post(ab_test_handlers::create_ab_test),
         )
         // A/B test-specific endpoints
-        .route(
-            "/api/ab-tests/:test_id",
-            get(ab_test_handlers::get_ab_test),
-        )
+        .route("/api/ab-tests/:test_id", get(ab_test_handlers::get_ab_test))
         .route(
             "/api/ab-tests/:test_id/start",
             post(ab_test_handlers::start_ab_test),
@@ -306,8 +326,7 @@ pub fn performance_routes() -> Router<AppState> {
         // Contract-scoped performance endpoints
         .route(
             "/api/contracts/:id/perf/metrics",
-            get(performance_handlers::list_metrics)
-                .post(performance_handlers::record_metric),
+            get(performance_handlers::list_metrics).post(performance_handlers::record_metric),
         )
         .route(
             "/api/contracts/:id/perf/anomalies",

@@ -119,13 +119,12 @@ pub async fn list_canaries(
         .await
         .map_err(|e| db_err("list canaries", e))?;
 
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM canary_releases WHERE contract_id = $1",
-        )
-        .bind(contract_uuid)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|e| db_err("count canaries", e))?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM canary_releases WHERE contract_id = $1")
+                .bind(contract_uuid)
+                .fetch_one(&state.db)
+                .await
+                .map_err(|e| db_err("count canaries", e))?;
 
         (items, count)
     };
@@ -145,18 +144,17 @@ pub async fn get_canary(
 ) -> ApiResult<Json<CanaryRelease>> {
     let canary_uuid = parse_uuid(&canary_id, "canary")?;
 
-    let release: CanaryRelease =
-        sqlx::query_as("SELECT * FROM canary_releases WHERE id = $1")
-            .bind(canary_uuid)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| match e {
-                sqlx::Error::RowNotFound => ApiError::not_found(
-                    "CanaryNotFound",
-                    format!("No canary release found with ID: {}", canary_id),
-                ),
-                _ => db_err("get canary", e),
-            })?;
+    let release: CanaryRelease = sqlx::query_as("SELECT * FROM canary_releases WHERE id = $1")
+        .bind(canary_uuid)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => ApiError::not_found(
+                "CanaryNotFound",
+                format!("No canary release found with ID: {}", canary_id),
+            ),
+            _ => db_err("get canary", e),
+        })?;
 
     Ok(Json(release))
 }
@@ -169,18 +167,17 @@ pub async fn advance_canary(
 ) -> ApiResult<Json<CanaryRelease>> {
     let canary_uuid = parse_uuid(&canary_id, "canary")?;
 
-    let current: CanaryRelease =
-        sqlx::query_as("SELECT * FROM canary_releases WHERE id = $1")
-            .bind(canary_uuid)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| match e {
-                sqlx::Error::RowNotFound => ApiError::not_found(
-                    "CanaryNotFound",
-                    format!("No canary release found with ID: {}", canary_id),
-                ),
-                _ => db_err("fetch canary for advance", e),
-            })?;
+    let current: CanaryRelease = sqlx::query_as("SELECT * FROM canary_releases WHERE id = $1")
+        .bind(canary_uuid)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => ApiError::not_found(
+                "CanaryNotFound",
+                format!("No canary release found with ID: {}", canary_id),
+            ),
+            _ => db_err("fetch canary for advance", e),
+        })?;
 
     // Only active or pending canaries can be advanced
     let status_str = serde_json::to_value(&current.status)
@@ -363,12 +360,11 @@ pub async fn list_canary_metrics(
     .await
     .map_err(|e| db_err("list canary metrics", e))?;
 
-    let total: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM canary_metrics WHERE canary_id = $1")
-            .bind(canary_uuid)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| db_err("count canary metrics", e))?;
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM canary_metrics WHERE canary_id = $1")
+        .bind(canary_uuid)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| db_err("count canary metrics", e))?;
 
     Ok(Json(json!({
         "items": metrics,
@@ -382,10 +378,7 @@ pub async fn list_canary_metrics(
 
 fn parse_uuid(id: &str, label: &str) -> Result<Uuid, ApiError> {
     Uuid::parse_str(id).map_err(|_| {
-        ApiError::bad_request(
-            "InvalidId",
-            format!("Invalid {} ID format: {}", label, id),
-        )
+        ApiError::bad_request("InvalidId", format!("Invalid {} ID format: {}", label, id))
     })
 }
 
@@ -394,10 +387,7 @@ fn db_err(operation: &str, err: sqlx::Error) -> ApiError {
     ApiError::internal("An unexpected database error occurred")
 }
 
-fn advance_stage(
-    current: &CanaryRelease,
-    target_override: Option<i32>,
-) -> (&'static str, i32) {
+fn advance_stage(current: &CanaryRelease, target_override: Option<i32>) -> (&'static str, i32) {
     // Default stage progression
     match serde_json::to_string(&current.current_stage)
         .unwrap_or_default()

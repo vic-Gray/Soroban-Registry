@@ -51,6 +51,8 @@ mod tests {
             started_at: Instant::now(),
             cache: Arc::new(CacheLayer::new(CacheConfig::default())),
             registry,
+            is_shutting_down: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            health_monitor_status: crate::health_monitor::HealthMonitorStatus::default(),
             resource_mgr: Arc::new(RwLock::new(ResourceManager::new())),
             auth_mgr: Arc::new(RwLock::new(AuthManager::new("test-secret".to_string()))),
         }

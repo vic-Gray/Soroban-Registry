@@ -1,4 +1,4 @@
--- 004_audit_log.sql
+-- 014_audit_log.sql
 -- Comprehensive audit log tracking all contract modifications with full
 -- version history.  Records are NEVER deleted (no cascade from contracts).
 

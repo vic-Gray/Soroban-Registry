@@ -5,6 +5,14 @@ use axum::response::IntoResponse;
 use crate::metrics;
 use crate::state::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/api/metrics",
+    responses(
+        (status = 200, description = "Prometheus metrics", body = String)
+    ),
+    tag = "Observability"
+)]
 pub async fn metrics_endpoint(State(state): State<AppState>) -> impl IntoResponse {
     let body = metrics::gather_metrics(&state.registry);
     (

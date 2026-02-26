@@ -5,14 +5,20 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = []
+openapi = []
+
 [[bin]]
 name = "api"
 path = "src/main.rs"
 
 [dependencies]
 shared = { path = "../shared" }
+background-job-queue
+soroban-batch = { path = "../../soroban-registry/crates/soroban-batch" }
 verifier = { path = "../verifier" }
-
+main
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
@@ -49,3 +55,6 @@ regex = "1.10"
 lazy_static = "1.4"
 wasmparser = { workspace = true }
 contract_abi = { path = "../contract_abi" }
+rust_decimal = { workspace = true }
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }

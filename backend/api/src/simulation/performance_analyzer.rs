@@ -115,7 +115,7 @@ pub fn analyze_performance(
 
 fn analyze_function(func_name: &str, abi_result: &AbiExtractionResult) -> FunctionAnalysis {
     // Check if function is in ABI result
-    let has_abi = abi_result.functions.iter().any(|f| &f.name == func_name);
+    let has_abi = abi_result.functions.iter().any(|f| f.name == func_name);
 
     let (complexity, recommendation) =
         if func_name.starts_with("get_") || func_name.contains("_view") {
@@ -126,7 +126,7 @@ fn analyze_function(func_name: &str, abi_result: &AbiExtractionResult) -> Functi
                 Some("Consider adding pagination for large datasets".to_string()),
             )
         } else if has_abi {
-            let func = abi_result.functions.iter().find(|f| &f.name == func_name);
+            let func = abi_result.functions.iter().find(|f| f.name == func_name);
             if let Some(f) = func {
                 if f.param_count > 5 {
                     (

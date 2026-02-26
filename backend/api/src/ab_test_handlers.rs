@@ -45,13 +45,12 @@ pub async fn create_ab_test(
     let min_sample = req.min_sample_size.unwrap_or(1000);
 
     // Ensure no running test for this contract
-    let existing: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM ab_tests WHERE contract_id = $1 AND status = 'running'",
-    )
-    .bind(contract_uuid)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| db_err("check existing ab test", e))?;
+    let existing: Option<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM ab_tests WHERE contract_id = $1 AND status = 'running'")
+            .bind(contract_uuid)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| db_err("check existing ab test", e))?;
 
     if existing.is_some() {
         return Err(ApiError::conflict(
@@ -147,12 +146,11 @@ pub async fn list_ab_tests(
         .await
         .map_err(|e| db_err("list ab tests", e))?;
 
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM ab_tests WHERE contract_id = $1")
-                .bind(contract_uuid)
-                .fetch_one(&state.db)
-                .await
-                .map_err(|e| db_err("count ab tests", e))?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ab_tests WHERE contract_id = $1")
+            .bind(contract_uuid)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|e| db_err("count ab tests", e))?;
 
         (items, count)
     };
@@ -177,9 +175,10 @@ pub async fn get_ab_test(
         .fetch_one(&state.db)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => {
-                ApiError::not_found("AbTestNotFound", format!("No A/B test found with ID: {}", test_id))
-            }
+            sqlx::Error::RowNotFound => ApiError::not_found(
+                "AbTestNotFound",
+                format!("No A/B test found with ID: {}", test_id),
+            ),
             _ => db_err("get ab test", e),
         })?;
 
@@ -205,10 +204,9 @@ pub async fn start_ab_test(
     .fetch_one(&state.db)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => ApiError::not_found(
-            "AbTestNotFound",
-            "No draft A/B test found to start",
-        ),
+        sqlx::Error::RowNotFound => {
+            ApiError::not_found("AbTestNotFound", "No draft A/B test found to start")
+        }
         _ => db_err("start ab test", e),
     })?;
 
@@ -234,10 +232,9 @@ pub async fn stop_ab_test(
     .fetch_one(&state.db)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => ApiError::not_found(
-            "AbTestNotFound",
-            "No running A/B test found to stop",
-        ),
+        sqlx::Error::RowNotFound => {
+            ApiError::not_found("AbTestNotFound", "No running A/B test found to stop")
+        }
         _ => db_err("stop ab test", e),
     })?;
 
@@ -263,10 +260,9 @@ pub async fn cancel_ab_test(
     .fetch_one(&state.db)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => ApiError::not_found(
-            "AbTestNotFound",
-            "No cancellable A/B test found",
-        ),
+        sqlx::Error::RowNotFound => {
+            ApiError::not_found("AbTestNotFound", "No cancellable A/B test found")
+        }
         _ => db_err("cancel ab test", e),
     })?;
 
@@ -284,15 +280,13 @@ pub async fn record_ab_test_metric(
     // Determine user variant assignment (uses DB function)
     let user_addr = req.user_address.as_deref().unwrap_or("anonymous");
 
-    let variant: Option<String> = sqlx::query_scalar(
-        "SELECT assign_variant($1, $2)::text",
-    )
-    .bind(test_uuid)
-    .bind(user_addr)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| db_err("assign variant", e))?
-    .flatten();
+    let variant: Option<String> = sqlx::query_scalar("SELECT assign_variant($1, $2)::text")
+        .bind(test_uuid)
+        .bind(user_addr)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| db_err("assign variant", e))?
+        .flatten();
 
     let variant_type = variant.unwrap_or_else(|| "control".to_string());
 
@@ -329,9 +323,10 @@ pub async fn get_ab_test_results(
         .fetch_one(&state.db)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => {
-                ApiError::not_found("AbTestNotFound", format!("No A/B test found with ID: {}", test_id))
-            }
+            sqlx::Error::RowNotFound => ApiError::not_found(
+                "AbTestNotFound",
+                format!("No A/B test found with ID: {}", test_id),
+            ),
             _ => db_err("get ab test for results", e),
         })?;
 
@@ -375,10 +370,7 @@ pub async fn get_ab_test_results(
 
 fn parse_uuid(id: &str, label: &str) -> Result<Uuid, ApiError> {
     Uuid::parse_str(id).map_err(|_| {
-        ApiError::bad_request(
-            "InvalidId",
-            format!("Invalid {} ID format: {}", label, id),
-        )
+        ApiError::bad_request("InvalidId", format!("Invalid {} ID format: {}", label, id))
     })
 }
 

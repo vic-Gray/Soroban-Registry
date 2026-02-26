@@ -13,10 +13,9 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde_json::{json, Value};
 use shared::{
     pagination::Cursor, AnalyticsEventType, AuditActionType, ChangePublisherRequest, Contract,
-    ContractAnalyticsResponse, ContractChangelogEntry, ContractChangelogResponse,
+    ContractAnalyticsResponse, ContractAuditLog, ContractChangelogEntry, ContractChangelogResponse,
     ContractGetResponse, ContractInteractionResponse, ContractSearchParams, ContractVersion,
     CreateContractVersionRequest, CreateInteractionBatchRequest, CreateInteractionRequest,
-    ContractAuditLog,
     DeploymentStats, InteractionTimeSeriesPoint, InteractionTimeSeriesResponse,
     InteractionsListResponse, InteractionsQueryParams, InteractorStats, Network, NetworkConfig,
     PaginatedResponse, PublishRequest, Publisher, SemVer, TimelineEntry, TopUser, TrendingParams,
@@ -26,7 +25,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 /// Query params for GET /contracts/:id (Issue #43)
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
 pub struct GetContractQuery {
     pub network: Option<Network>,
 }
@@ -60,7 +59,28 @@ fn map_query_rejection(err: QueryRejection) -> ApiError {
     )
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, sqlx::Type)]
+#[sqlx(type_name = "contract_audit_event_type", rename_all = "snake_case")]
+pub enum ContractAuditEventType {
+    ContractCreated,
+    MetadataUpdated,
+    VerificationAdded,
+    StatusChanged,
+    PublisherChanged,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+pub struct ContractAuditLogEntry {
+    pub id: Uuid,
+    pub event_type: ContractAuditEventType,
+    pub contract_id: Uuid,
+    pub user_id: Uuid,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub changes: serde_json::Value,
+    pub ip_address: String,
+}
+
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
 pub struct AuditLogQuery {
     #[serde(default = "default_audit_limit")]
     pub limit: i64,
@@ -70,6 +90,18 @@ pub struct AuditLogQuery {
 
 fn default_audit_limit() -> i64 {
     100
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct PublisherContractsQuery {
+    #[serde(default = "default_contracts_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub offset: i64,
+}
+
+fn default_contracts_limit() -> i64 {
+    20
 }
 
 fn extract_ip_address(headers: &HeaderMap) -> String {
@@ -124,6 +156,15 @@ async fn write_contract_audit_log(
     Ok(())
 }
 
+#[utoipa::path(
+    get,
+    path = "/health",
+    responses(
+        (status = 200, description = "Service is healthy", body = Object),
+        (status = 503, description = "Service is unavailable or degraded", body = Object)
+    ),
+    tag = "Observability"
+)]
 fn split_audit_changes(
     changes: &serde_json::Value,
     ip_address: &str,
@@ -345,6 +386,14 @@ pub async fn health_check(State(state): State<AppState>) -> (StatusCode, Json<Va
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/stats",
+    responses(
+        (status = 200, description = "Global registry statistics", body = Object)
+    ),
+    tag = "Observability"
+)]
 pub async fn get_stats(State(state): State<AppState>) -> ApiResult<Json<Value>> {
     let total_contracts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contracts")
         .fetch_one(&state.db)
@@ -370,6 +419,16 @@ pub async fn get_stats(State(state): State<AppState>) -> ApiResult<Json<Value>> 
 }
 
 /// List and search contracts
+#[utoipa::path(
+    get,
+    path = "/api/contracts",
+    params(ContractSearchParams),
+    responses(
+        (status = 200, description = "List of contracts", body = PaginatedResponse<Contract>),
+        (status = 400, description = "Invalid query parameters")
+    ),
+    tag = "Contracts"
+)]
 pub async fn list_contracts(
     State(state): State<AppState>,
     params: Result<Query<ContractSearchParams>, QueryRejection>,
@@ -486,8 +545,8 @@ pub async fn list_contracts(
         shared::SortBy::Relevance => {
             if let Some(ref q) = params.query {
                 format!(
-                    "CASE WHEN c.name ILIKE '{}' THEN 0 
-                          WHEN c.name ILIKE '%{}%' THEN 1 
+                    "CASE WHEN c.name ILIKE '{}' THEN 0
+                          WHEN c.name ILIKE '%{}%' THEN 1
                           ELSE 2 END",
                     q, q
                 )
@@ -541,6 +600,20 @@ pub async fn list_contracts(
 }
 
 /// Get a specific contract by ID. Optional ?network= returns network-specific config (Issue #43).
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}",
+    params(
+        ("id" = String, Path, description = "Contract UUID"),
+        GetContractQuery
+    ),
+    responses(
+        (status = 200, description = "Contract details", body = ContractGetResponse),
+        (status = 404, description = "Contract not found"),
+        (status = 400, description = "Invalid contract ID format")
+    ),
+    tag = "Contracts"
+)]
 pub async fn get_contract(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -590,6 +663,19 @@ pub async fn get_contract(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/versions",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    responses(
+        (status = 200, description = "List of contract versions", body = [ContractVersion]),
+        (status = 404, description = "Contract not found"),
+        (status = 400, description = "Invalid contract ID format")
+    ),
+    tag = "Versions"
+)]
 pub async fn get_contract_versions(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -612,6 +698,20 @@ pub async fn get_contract_versions(
     Ok(Json(versions))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/contracts/{id}/versions",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    request_body = CreateContractVersionRequest,
+    responses(
+        (status = 201, description = "Version created successfully", body = ContractVersion),
+        (status = 400, description = "Invalid input or version conflict"),
+        (status = 404, description = "Contract not found")
+    ),
+    tag = "Versions"
+)]
 /// GET /api/contracts/:id/changelog (and /contracts/:id/changelog) — release history with breaking-change markers.
 pub async fn get_contract_changelog(
     State(state): State<AppState>,
@@ -961,6 +1061,17 @@ async fn fetch_contract_identity(state: &AppState, id: &str) -> ApiResult<(Uuid,
     })
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/contracts",
+    request_body = PublishRequest,
+    responses(
+        (status = 201, description = "Contract published successfully", body = Contract),
+        (status = 400, description = "Invalid input or contract ID"),
+        (status = 409, description = "Contract already registered")
+    ),
+    tag = "Contracts"
+)]
 async fn ensure_contract_exists(
     state: &AppState,
     contract_uuid: Uuid,
@@ -1152,6 +1263,16 @@ pub async fn publish_contract(
     Ok(Json(contract))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/publishers",
+    request_body = Publisher,
+    responses(
+        (status = 201, description = "Publisher created successfully", body = Publisher),
+        (status = 400, description = "Invalid input")
+    ),
+    tag = "Publishers"
+)]
 pub async fn create_publisher(
     State(state): State<AppState>,
     ValidatedJson(publisher): ValidatedJson<Publisher>,
@@ -1184,6 +1305,18 @@ pub async fn create_publisher(
     Ok(Json(created))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/publishers/{id}",
+    params(
+        ("id" = String, Path, description = "Publisher UUID")
+    ),
+    responses(
+        (status = 200, description = "Publisher details", body = Publisher),
+        (status = 404, description = "Publisher not found")
+    ),
+    tag = "Publishers"
+)]
 pub async fn get_publisher(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -1210,10 +1343,23 @@ pub async fn get_publisher(
     Ok(Json(publisher))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/publishers/{id}/contracts",
+    params(
+        ("id" = String, Path, description = "Publisher UUID")
+    ),
+    responses(
+        (status = 200, description = "List of contracts by publisher", body = [Contract]),
+        (status = 404, description = "Publisher not found")
+    ),
+    tag = "Publishers"
+)]
 pub async fn get_publisher_contracts(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> ApiResult<Json<Vec<Contract>>> {
+    Query(query): Query<PublisherContractsQuery>,
+) -> ApiResult<Json<PaginatedResponse<Contract>>> {
     let publisher_uuid = Uuid::parse_str(&id).map_err(|_| {
         ApiError::bad_request(
             "InvalidPublisherId",
@@ -1221,18 +1367,36 @@ pub async fn get_publisher_contracts(
         )
     })?;
 
-    let contracts: Vec<Contract> =
-        sqlx::query_as("SELECT * FROM contracts WHERE publisher_id = $1 ORDER BY created_at DESC")
-            .bind(publisher_uuid)
-            .fetch_all(&state.db)
-            .await
-            .map_err(|err| db_internal_error("get publisher contracts", err))?;
+    // Validate and cap limit (max 100)
+    let limit = query.limit.clamp(1, 100);
+    let offset = query.offset.max(0);
 
-    Ok(Json(contracts))
+    // Get total count
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contracts WHERE publisher_id = $1")
+        .bind(publisher_uuid)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|err| db_internal_error("get publisher contracts count", err))?;
+
+    // Fetch paginated results
+    let contracts: Vec<Contract> = sqlx::query_as(
+        "SELECT * FROM contracts WHERE publisher_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+    )
+    .bind(publisher_uuid)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| db_internal_error("get publisher contracts", err))?;
+
+    let page = (offset / limit) + 1;
+    let response = PaginatedResponse::new(contracts, total, page, limit);
+
+    Ok(Json(response))
 }
 
 /// Query for contract ABI and OpenAPI (optional version)
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
 pub struct ContractAbiQuery {
     pub version: Option<String>,
 }
@@ -1251,6 +1415,19 @@ async fn resolve_contract_abi(
 }
 
 // Contract ABI and OpenAPI endpoints
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/abi",
+    params(
+        ("id" = String, Path, description = "Contract identifier (address or name)"),
+        ContractAbiQuery
+    ),
+    responses(
+        (status = 200, description = "Contract ABI", body = Object),
+        (status = 404, description = "Contract or version not found")
+    ),
+    tag = "Artifacts"
+)]
 pub async fn get_contract_abi(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -1262,6 +1439,19 @@ pub async fn get_contract_abi(
     Ok(Json(json!({ "abi": abi })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/openapi.yaml",
+    params(
+        ("id" = String, Path, description = "Contract identifier"),
+        ContractAbiQuery
+    ),
+    responses(
+        (status = 200, description = "OpenAPI YAML specification", body = String),
+        (status = 404, description = "Contract or version not found")
+    ),
+    tag = "Artifacts"
+)]
 pub async fn get_contract_openapi_yaml(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -1279,6 +1469,19 @@ pub async fn get_contract_openapi_yaml(
         .map_err(|_| ApiError::internal("Failed to build response"))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/openapi.json",
+    params(
+        ("id" = String, Path, description = "Contract identifier"),
+        ContractAbiQuery
+    ),
+    responses(
+        (status = 200, description = "OpenAPI JSON specification", body = Object),
+        (status = 404, description = "Contract or version not found")
+    ),
+    tag = "Artifacts"
+)]
 pub async fn get_contract_openapi_json(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -1316,6 +1519,18 @@ pub async fn update_contract_state() -> impl IntoResponse {
 }
 
 /// GET /api/contracts/:id/analytics — timeline and top users from contract_interactions (Issue #46).
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/analytics",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    responses(
+        (status = 200, description = "Contract analytics and usage data", body = ContractAnalyticsResponse),
+        (status = 404, description = "Contract not found")
+    ),
+    tag = "Analytics"
+)]
 pub async fn get_contract_analytics(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -1402,6 +1617,18 @@ pub async fn get_trust_score() -> impl IntoResponse {
     planned_not_implemented_response()
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/dependencies",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    responses(
+        (status = 200, description = "List of direct dependencies", body = Object),
+        (status = 404, description = "Contract not found")
+    ),
+    tag = "Graphs"
+)]
 pub async fn get_contract_dependencies(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -1419,6 +1646,18 @@ pub async fn get_contract_dependencies(
     Ok(Json(json!({ "dependencies": deps })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/dependents",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    responses(
+        (status = 200, description = "List of direct dependents", body = Object),
+        (status = 404, description = "Contract not found")
+    ),
+    tag = "Graphs"
+)]
 pub async fn get_contract_dependents(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -1436,6 +1675,14 @@ pub async fn get_contract_dependents(
     Ok(Json(json!({ "dependents": dependents })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/contracts/graph",
+    responses(
+        (status = 200, description = "Full contract dependency graph", body = GraphResponse)
+    ),
+    tag = "Graphs"
+)]
 pub async fn get_contract_graph(
     State(state): State<AppState>,
 ) -> ApiResult<Json<shared::GraphResponse>> {
@@ -1467,11 +1714,23 @@ pub async fn get_contract_graph(
     Ok(Json(graph))
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
 pub struct ImpactQuery {
     pub change: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/impact",
+    params(
+        ("id" = String, Path, description = "Contract UUID"),
+        ImpactQuery
+    ),
+    responses(
+        (status = 200, description = "Impact analysis for proposed changes", body = Object)
+    ),
+    tag = "Graphs"
+)]
 pub async fn get_impact_analysis(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -1507,6 +1766,14 @@ pub async fn get_impact_analysis(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/contracts/trending",
+    responses(
+        (status = 200, description = "List of trending contracts", body = Object)
+    ),
+    tag = "Contracts"
+)]
 pub async fn get_trending_contracts(
     State(state): State<AppState>,
     Query(params): Query<TrendingParams>,
@@ -1611,6 +1878,17 @@ pub async fn get_trending_contracts(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/contracts/verify",
+    request_body = VerifyRequest,
+    responses(
+        (status = 200, description = "Verification successful", body = Object),
+        (status = 400, description = "Invalid request"),
+        (status = 404, description = "Contract not found")
+    ),
+    tag = "Verification"
+)]
 pub async fn verify_contract(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1881,6 +2159,20 @@ pub async fn verify_contract(
     }
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/contracts/{id}/metadata",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    request_body = UpdateContractMetadataRequest,
+    responses(
+        (status = 200, description = "Metadata updated successfully", body = Contract),
+        (status = 404, description = "Contract not found"),
+        (status = 400, description = "Invalid input")
+    ),
+    tag = "Contracts"
+)]
 pub async fn update_contract_metadata(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -1989,6 +2281,19 @@ pub async fn update_contract_metadata(
     Ok(Json(after))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/contracts/{id}/publisher",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    request_body = ChangePublisherRequest,
+    responses(
+        (status = 200, description = "Publisher changed successfully", body = Contract),
+        (status = 404, description = "Contract not found")
+    ),
+    tag = "Contracts"
+)]
 pub async fn change_contract_publisher(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -2065,6 +2370,20 @@ pub async fn change_contract_publisher(
     Ok(Json(after))
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/contracts/{id}/status",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    request_body = UpdateContractStatusRequest,
+    responses(
+        (status = 200, description = "Status updated successfully", body = Object),
+        (status = 404, description = "Contract not found"),
+        (status = 400, description = "Invalid status")
+    ),
+    tag = "Contracts"
+)]
 pub async fn update_contract_status(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -2188,6 +2507,19 @@ pub async fn update_contract_status(
     })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/audit-log",
+    params(
+        ("id" = String, Path, description = "Contract UUID"),
+        AuditLogQuery
+    ),
+    responses(
+        (status = 200, description = "Paginated audit logs for the contract", body = [ContractAuditLogEntry]),
+        (status = 404, description = "Contract not found")
+    ),
+    tag = "Administration"
+)]
 pub async fn get_contract_audit_log(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -2241,6 +2573,16 @@ pub async fn get_contract_audit_log(
     Ok(Json(logs))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/admin/audit-logs",
+    params(AuditLogQuery),
+    responses(
+        (status = 200, description = "Global audit logs (Admin only)", body = [ContractAuditLogEntry])
+    ),
+    tag = "Administration",
+    security(("bearerAuth" = []))
+)]
 pub async fn get_all_audit_logs(
     State(state): State<AppState>,
     Query(params): Query<AuditLogQuery>,
@@ -2266,14 +2608,44 @@ pub async fn get_all_audit_logs(
     Ok(Json(logs))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/deployments/status",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    responses(
+        (status = 200, description = "Current deployment status", body = Object)
+    ),
+    tag = "Deployments"
+)]
 pub async fn get_deployment_status() -> impl IntoResponse {
     planned_not_implemented_response()
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/deployments/green",
+    responses(
+        (status = 202, description = "Green deployment triggered", body = Object)
+    ),
+    tag = "Deployments"
+)]
 pub async fn deploy_green() -> impl IntoResponse {
     planned_not_implemented_response()
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/performance",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    responses(
+        (status = 200, description = "Performance metrics and anomalies", body = Object)
+    ),
+    tag = "Analytics"
+)]
 pub async fn get_contract_performance() -> impl IntoResponse {
     Json(json!({"performance": {}}))
 }
@@ -2281,6 +2653,19 @@ pub async fn get_contract_performance() -> impl IntoResponse {
 // ─── Contract interaction history (Issue #46) ─────────────────────────────────
 
 /// GET /api/contracts/:id/interactions — list with optional filters (account, method, date range).
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/interactions",
+    params(
+        ("id" = String, Path, description = "Contract UUID"),
+        InteractionsQueryParams
+    ),
+    responses(
+        (status = 200, description = "List of contract interactions", body = InteractionsListResponse),
+        (status = 404, description = "Contract not found")
+    ),
+    tag = "Analytics"
+)]
 pub async fn get_contract_interactions(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -2483,6 +2868,19 @@ pub async fn get_contract_interactions(
 }
 
 /// POST /api/contracts/:id/interactions — ingest one interaction.
+#[utoipa::path(
+    post,
+    path = "/api/contracts/{id}/interactions",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    request_body = CreateInteractionRequest,
+    responses(
+        (status = 201, description = "Interaction logged", body = Object),
+        (status = 404, description = "Contract not found")
+    ),
+    tag = "Analytics"
+)]
 pub async fn post_contract_interaction(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -2532,6 +2930,19 @@ pub async fn post_contract_interaction(
 }
 
 /// POST /api/contracts/:id/interactions/batch — ingest multiple interactions.
+#[utoipa::path(
+    post,
+    path = "/api/contracts/{id}/interactions/batch",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    request_body = CreateInteractionBatchRequest,
+    responses(
+        (status = 201, description = "Batch of interactions logged", body = Object),
+        (status = 404, description = "Contract not found")
+    ),
+    tag = "Analytics"
+)]
 pub async fn post_contract_interactions_batch(
     State(state): State<AppState>,
     Path(id): Path<String>,

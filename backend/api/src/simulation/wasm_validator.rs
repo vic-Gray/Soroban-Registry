@@ -40,28 +40,22 @@ pub fn validate_wasm(wasm_bytes: &[u8]) -> WasmValidationResult {
                 table_count = t.count();
             }
             Ok(wasmparser::Payload::MemorySection(m)) => {
-                for memory in m {
-                    if let Ok(mem) = memory {
-                        memory_pages = mem.initial;
-                    }
+                for mem in m.into_iter().flatten() {
+                    memory_pages = mem.initial;
                 }
             }
             Ok(wasmparser::Payload::DataSection(d)) => {
                 data_section_size = d.count();
             }
             Ok(wasmparser::Payload::ExportSection(e)) => {
-                for export in e {
-                    if let Ok(exp) = export {
-                        export_functions.push(exp.name.to_string());
-                    }
+                for exp in e.into_iter().flatten() {
+                    export_functions.push(exp.name.to_string());
                 }
             }
             Ok(wasmparser::Payload::ImportSection(i)) => {
-                for import in i {
-                    if let Ok(imp) = import {
-                        let name = format!("{}::{}", imp.module, imp.name);
-                        import_functions.push(name);
-                    }
+                for imp in i.into_iter().flatten() {
+                    let name = format!("{}::{}", imp.module, imp.name);
+                    import_functions.push(name);
                 }
             }
             Ok(wasmparser::Payload::CodeSectionStart { count, .. }) => {

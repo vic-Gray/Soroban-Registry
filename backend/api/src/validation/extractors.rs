@@ -139,7 +139,7 @@ where
             .headers()
             .get("x-correlation-id")
             .and_then(|v| v.to_str().ok())
-            .unwrap_or_else(|| "unknown")
+            .unwrap_or("unknown")
             .to_string();
 
         let path = req

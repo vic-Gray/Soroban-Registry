@@ -26,6 +26,7 @@ use db::DatabaseWriter;
 use reorg::ReorgHandler;
 use rpc::StellarRpcClient;
 use state::{IndexerState, StateManager};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
@@ -38,6 +39,7 @@ struct IndexerService {
     state_manager: StateManager,
     reorg_handler: ReorgHandler,
     backoff: backoff::ExponentialBackoff,
+    current_state: Arc<Mutex<Option<IndexerState>>>,
 }
 
 impl IndexerService {
@@ -65,7 +67,22 @@ impl IndexerService {
             state_manager,
             reorg_handler,
             backoff,
+            current_state: Arc::new(Mutex::new(None)),
         })
+    }
+
+    /// Flush the current state to the database before shutdown
+    async fn flush_state(&self) -> Result<()> {
+        if let Ok(state_guard) = self.current_state.lock() {
+            if let Some(state) = state_guard.as_ref() {
+                info!(
+                    "Flushing indexer state to database before shutdown: ledger={}",
+                    state.last_indexed_ledger_height
+                );
+                self.state_manager.update_state(state).await?;
+            }
+        }
+        Ok(())
     }
 
     /// Run the main indexing loop
@@ -103,6 +120,11 @@ impl IndexerService {
             }
         };
 
+        // Store initial state for graceful shutdown
+        if let Ok(mut state_guard) = self.current_state.lock() {
+            *state_guard = Some(state.clone());
+        }
+
         // Health check before starting
         match self.rpc_client.health_check().await {
             Ok(_) => info!("RPC endpoint health check passed"),
@@ -116,10 +138,18 @@ impl IndexerService {
             match self.poll_and_index(&mut state).await {
                 Ok(_) => {
                     self.backoff.on_success();
+                    // Store current state for graceful shutdown
+                    if let Ok(mut state_guard) = self.current_state.lock() {
+                        *state_guard = Some(state.clone());
+                    }
                 }
                 Err(e) => {
                     error!("Error during polling cycle: {}", e);
                     state.record_failure();
+                    // Store state even on error for graceful shutdown
+                    if let Ok(mut state_guard) = self.current_state.lock() {
+                        *state_guard = Some(state.clone());
+                    }
 
                     let backoff_duration = self.backoff.on_failure(&e.to_string());
                     let backoff_secs = backoff_duration.as_secs();
@@ -351,7 +381,9 @@ async fn main() -> Result<()> {
             }
         }
         _ = shutdown_signal => {
-            info!("Received shutdown signal, gracefully exiting...");
+            info!("Received shutdown signal, flushing state to database...");
+            service.flush_state().await?;
+            info!("Indexer state flushed successfully, exiting gracefully");
             Ok(())
         }
     }

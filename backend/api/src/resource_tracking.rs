@@ -59,6 +59,12 @@ pub struct ResourceManager {
     data: HashMap<String, Vec<ResourceUsage>>,
 }
 
+impl Default for ResourceManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResourceManager {
     pub fn new() -> Self {
         Self {
@@ -162,8 +168,10 @@ impl ResourceManager {
         let cpu_step_burn_p90 = (cpu_step_burn - Z_P90 * cpu_sigma).max(EPS);
         let mem_step_burn_p90 = (mem_step_burn - Z_P90 * mem_sigma).max(EPS);
 
-        let cpu_exhaust = project_exhaustion(current_cpu, cpu_step_burn, MAX_CPU as f64, last_ts, dt);
-        let mem_exhaust = project_exhaustion(current_mem, mem_step_burn, MAX_MEM as f64, last_ts, dt);
+        let cpu_exhaust =
+            project_exhaustion(current_cpu, cpu_step_burn, MAX_CPU as f64, last_ts, dt);
+        let mem_exhaust =
+            project_exhaustion(current_mem, mem_step_burn, MAX_MEM as f64, last_ts, dt);
         let cpu_exhaust =
             project_exhaustion(current_cpu, cpu_step_burn, MAX_CPU as f64, last_ts, dt);
         let mem_exhaust =
@@ -175,8 +183,7 @@ impl ResourceManager {
 
         let n = cpu_deltas.len().max(mem_deltas.len()) as f64;
         let variance_penalty = (cpu_sigma + mem_sigma) / (cpu_step_burn + mem_step_burn + 1.0);
-        let confidence = ((1.0 - 1.0 / (n + 1.0)) * (1.0 - variance_penalty))
-            .clamp(0.0, 0.99);
+        let confidence = ((1.0 - 1.0 / (n + 1.0)) * (1.0 - variance_penalty)).clamp(0.0, 0.99);
         let confidence = ((1.0 - 1.0 / (n + 1.0)) * (1.0 - variance_penalty)).clamp(0.0, 0.99);
 
         UsageForecast {

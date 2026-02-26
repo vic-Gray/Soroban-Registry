@@ -166,7 +166,9 @@ pub async fn require_admin(req: Request, next: Next) -> Result<Response, StatusC
     };
 
     let auth = AuthManager::from_env().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let claims = auth.validate_jwt(token).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let claims = auth
+        .validate_jwt(token)
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     if !is_admin(&claims) {
         return Err(StatusCode::FORBIDDEN);

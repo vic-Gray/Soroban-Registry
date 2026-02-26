@@ -9,6 +9,18 @@ use uuid::Uuid;
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/deprecation",
+    params(
+        ("id" = String, Path, description = "Contract identifier")
+    ),
+    responses(
+        (status = 200, description = "Deprecation status and info", body = DeprecationInfo),
+        (status = 404, description = "Contract not found")
+    ),
+    tag = "Maintenance"
+)]
 pub async fn get_deprecation_info(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -82,6 +94,20 @@ pub async fn get_deprecation_info(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/contracts/{id}/deprecate",
+    params(
+        ("id" = String, Path, description = "Contract identifier")
+    ),
+    request_body = DeprecateContractRequest,
+    responses(
+        (status = 200, description = "Contract deprecated successfully", body = DeprecationInfo),
+        (status = 404, description = "Contract not found"),
+        (status = 400, description = "Invalid input or missing migration path")
+    ),
+    tag = "Maintenance"
+)]
 pub async fn deprecate_contract(
     State(state): State<AppState>,
     Path(id): Path<String>,

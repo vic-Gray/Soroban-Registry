@@ -63,6 +63,59 @@ function toggleOne<T>(values: T[], value: T) {
     : [...values, value];
 }
 
+function getPaginationRange(
+  currentPage: number,
+  totalPages: number,
+): Array<number | 'ellipsis'> {
+  if (totalPages <= 0) return [];
+  if (totalPages <= 5) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const isNearStart = safeCurrentPage <= 2;
+  const isNearEnd = safeCurrentPage >= totalPages - 1;
+
+  const windowStart = isNearStart ? 2 : isNearEnd ? totalPages - 2 : safeCurrentPage - 1;
+  const windowEnd = isNearStart ? 3 : isNearEnd ? totalPages - 1 : safeCurrentPage + 1;
+
+  const basePages = [
+    1,
+    ...Array.from(
+      { length: Math.max(0, windowEnd - windowStart + 1) },
+      (_, index) => windowStart + index,
+    ),
+    totalPages,
+  ].filter((page) => page >= 1 && page <= totalPages);
+
+  const uniqueSortedPages = Array.from(new Set(basePages)).sort((a, b) => a - b);
+  const range: Array<number | 'ellipsis'> = [];
+
+  for (let index = 0; index < uniqueSortedPages.length; index += 1) {
+    const page = uniqueSortedPages[index];
+    const previous = range[range.length - 1];
+
+    if (typeof previous !== 'number') {
+      range.push(page);
+      continue;
+    }
+
+    const diff = page - previous;
+    if (diff === 2) {
+      range.push(previous + 1, page);
+      continue;
+    }
+    if (diff > 2) {
+      range.push('ellipsis', page);
+      continue;
+    }
+
+    range.push(page);
+  }
+
+  return range;
+}
+
 type ContractsUiFilters = {
   query: string;
   categories: string[];
@@ -163,6 +216,12 @@ export function ContractsContent() {
     queryFn: () => api.getContracts(apiParams),
     placeholderData: (previousData) => previousData,
   });
+
+  const isEmptyResult = (data?.total ?? 0) === 0;
+  const paginationRange = useMemo(
+    () => (data ? getPaginationRange(filters.page, data.total_pages) : []),
+    [filters.page, data?.total_pages],
+  );
 
   useEffect(() => {
     const payload = {
@@ -477,7 +536,7 @@ export function ContractsContent() {
           </div>
 
           {data.total_pages > 1 && (
-            <div className="flex items-center justify-center gap-2">
+            <div className="flex flex-wrap items-center justify-center gap-2">
               <button
                 onClick={() =>
                   setFilters((current) => ({ ...current, page: Math.max(1, current.page - 1) }))
@@ -488,9 +547,42 @@ export function ContractsContent() {
                 Previous
               </button>
 
-              <span className="text-sm text-muted-foreground">
-                Page {filters.page} of {data.total_pages}
-              </span>
+              {paginationRange.map((item, index) => {
+                if (item === 'ellipsis') {
+                  return (
+                    <span
+                      key={`ellipsis-${index}`}
+                      className="px-2 text-sm text-muted-foreground"
+                      aria-hidden="true"
+                    >
+                      ...
+                    </span>
+                  );
+                }
+
+                const isActive = item === filters.page;
+
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() =>
+                      setFilters((current) => ({
+                        ...current,
+                        page: Math.min(data.total_pages, Math.max(1, item)),
+                      }))
+                    }
+                    aria-current={isActive ? 'page' : undefined}
+                    className={
+                      isActive
+                        ? 'px-3 py-2 rounded-lg border border-primary bg-primary text-primary-foreground font-medium'
+                        : 'px-3 py-2 rounded-lg border border-border text-foreground hover:bg-accent transition-colors'
+                    }
+                  >
+                    {item}
+                  </button>
+                );
+              })}
 
               <button
                 onClick={() =>
@@ -523,6 +615,78 @@ export function ContractsContent() {
           >
             Clear all filters
           </button>
+
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setFilters((current) => ({ ...current, page: Math.max(1, current.page - 1) }))
+              }
+              disabled={isEmptyResult || filters.page <= 1}
+              className="px-4 py-2 rounded-lg border border-border text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
+            >
+              Previous
+            </button>
+
+            {isEmptyResult ? (
+              <button
+                type="button"
+                disabled
+                aria-current="page"
+                className="px-3 py-2 rounded-lg border border-primary bg-primary text-primary-foreground font-medium"
+              >
+                0
+              </button>
+            ) : (
+              paginationRange.map((item, index) => {
+                if (item === 'ellipsis') {
+                  return (
+                    <span
+                      key={`ellipsis-empty-${index}`}
+                      className="px-2 text-sm text-muted-foreground"
+                      aria-hidden="true"
+                    >
+                      ...
+                    </span>
+                  );
+                }
+
+                const isActive = item === filters.page;
+
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() =>
+                      setFilters((current) => ({
+                        ...current,
+                        page: Math.min(data!.total_pages, Math.max(1, item)),
+                      }))
+                    }
+                    aria-current={isActive ? 'page' : undefined}
+                    className={
+                      isActive
+                        ? 'px-3 py-2 rounded-lg border border-primary bg-primary text-primary-foreground font-medium'
+                        : 'px-3 py-2 rounded-lg border border-border text-foreground hover:bg-accent transition-colors'
+                    }
+                  >
+                    {item}
+                  </button>
+                );
+              })
+            )}
+
+            <button
+              type="button"
+              onClick={() =>
+                setFilters((current) => ({ ...current, page: current.page + 1 }))
+              }
+              disabled={isEmptyResult || filters.page >= (data?.total_pages ?? 1)}
+              className="px-4 py-2 rounded-lg border border-border text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
+            >
+              Next
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -15,6 +15,8 @@ import {
   FlaskConical,
 } from "lucide-react";
 import Link from "next/link";
+import { useCopy } from "@/hooks/useCopy";
+import CodeCopyButton from "@/components/CodeCopyButton";
 import { useParams, useSearchParams } from "next/navigation";
 import { useAnalytics } from "@/hooks/useAnalytics";
 import FormalVerificationPanel from "@/components/FormalVerificationPanel";
@@ -33,6 +35,8 @@ function ContractDetailsContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const id = params.id as string;
+  const { copy: copyHeader, copied: copiedHeader } = useCopy();
+  const { copy: copySidebar, copied: copiedSidebar } = useCopy();
   const networkFromUrl = searchParams.get("network") as Network | null;
   const [selectedNetwork, setSelectedNetwork] = useState<Network>(
     networkFromUrl && NETWORKS.includes(networkFromUrl) ? networkFromUrl : "mainnet"
@@ -121,8 +125,9 @@ function ContractDetailsContent() {
               {contract.name}
             </h1>
             <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
-              <span className="font-mono bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-sm">
-                {displayContractId}
+              <span className="flex items-center gap-2 font-mono bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-sm">
+                <span>{displayContractId}</span>
+                <CodeCopyButton copied={copiedHeader} onCopy={() => copyHeader(displayContractId)} />
               </span>
               {displayVerified && (
                 <span className="flex items-center gap-1 text-green-600 dark:text-green-400 text-sm font-medium">
@@ -142,11 +147,10 @@ function ContractDetailsContent() {
                   key={net}
                   type="button"
                   onClick={() => setSelectedNetwork(net)}
-                  className={`px-4 py-2 rounded-md text-sm font-medium capitalize transition-colors ${
-                    selectedNetwork === net
+                  className={`px-4 py-2 rounded-md text-sm font-medium capitalize transition-colors ${selectedNetwork === net
                       ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm"
                       : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-                  } ${!hasConfig ? "opacity-60" : ""}`}
+                    } ${!hasConfig ? "opacity-60" : ""}`}
                 >
                   {net}
                 </button>
@@ -227,8 +231,9 @@ function ContractDetailsContent() {
                 <>
                   <div>
                     <dt className="text-gray-500 dark:text-gray-400">Contract address</dt>
-                    <dd className="font-mono text-xs text-gray-900 dark:text-white break-all">
-                      {displayContractId}
+                    <dd className="flex items-center justify-between gap-2 font-mono text-xs text-gray-900 dark:text-white break-all">
+                      <span>{displayContractId}</span>
+                      <CodeCopyButton copied={copiedSidebar} onCopy={() => copySidebar(displayContractId)} />
                     </dd>
                   </div>
                   {(configForNetwork.min_version ?? configForNetwork.max_version) && (

@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import { api } from '@/lib/api';
 import useFormValidation, { validators } from '@/lib/formValidation';
 import { FormInput, FormSelect, FormTextarea } from '@/components/Form';
+import Navbar from '@/components/Navbar';
+import { useToast } from '@/hooks/useToast';
 
 type Values = {
   contract_id: string;
@@ -17,9 +19,9 @@ type Values = {
 };
 
 export default function PublishPage() {
-  const [status, setStatus] = useState<string | null>(null);
+  const { showSuccess, showError } = useToast();
 
-  const { values, errors, handleChange, handleBlur, handleSubmit } = useFormValidation<Values>({
+  const { values, errors, handleChange, handleBlur, handleSubmit, setValues } = useFormValidation<Values>({
     initialValues: {
       contract_id: '',
       name: '',
@@ -43,7 +45,6 @@ export default function PublishPage() {
       return e;
     },
     onSubmit: async (vals) => {
-      setStatus(null);
       try {
         await api.publishContract({
           contract_id: vals.contract_id,
@@ -55,101 +56,113 @@ export default function PublishPage() {
           source_url: vals.source_url,
           publisher_address: vals.publisher_address,
         });
-        setStatus('Published successfully');
+        showSuccess('Published successfully');
+        setValues({
+          contract_id: '',
+          name: '',
+          version: '0.1.0',
+          source_url: '',
+          publisher_address: '',
+          network: 'testnet',
+          description: '',
+          is_public: true,
+        });
       } catch (err: unknown) {
-        setStatus(err instanceof Error ? err.message : 'Failed to publish (mock mode?)');
+        showError(err instanceof Error ? err.message : 'Failed to publish');
       }
     },
   });
 
   return (
-    <div className="max-w-3xl mx-auto py-8 px-4 sm:px-6 lg:px-8 w-full">
-      <h1 className="text-2xl sm:text-3xl font-bold mb-4 text-center sm:text-left">Publish Contract</h1>
+    <div className="flex flex-col min-h-screen bg-background">
+      <Navbar />
+      <div className="max-w-3xl mx-auto py-8 px-4 sm:px-6 lg:px-8 w-full flex-grow">
+        <h1 className="text-2xl sm:text-3xl font-bold mb-4 text-center sm:text-left">Publish Contract</h1>
 
-      <form
-        onSubmit={async (e) => {
-          const res = await handleSubmit(e);
-          if (res && typeof res === 'object' && 'success' in res && (res as { success?: boolean }).success) {
-            // noop
-          }
-        }}
-        className="space-y-4 bg-background p-4 sm:p-6 rounded-lg border border-border w-full"
-      >
-        <FormInput
-          label="Contract ID"
-          name="contract_id"
-          value={values.contract_id}
-          onChange={handleChange}
-          onBlur={handleBlur}
-          error={errors.contract_id}
-          placeholder="contract-name"
-        />
+        <form
+          onSubmit={async (e) => {
+            const res = await handleSubmit(e);
+            if (res && typeof res === 'object' && 'success' in res && (res as { success?: boolean }).success) {
+              // noop
+            }
+          }}
+          className="space-y-4 bg-background p-4 sm:p-6 rounded-lg border border-border w-full"
+        >
+          <FormInput
+            label="Contract ID"
+            name="contract_id"
+            value={values.contract_id}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            error={errors.contract_id}
+            placeholder="contract-name"
+          />
 
-        <FormInput
-          label="Name"
-          name="name"
-          value={values.name}
-          onChange={handleChange}
-          onBlur={handleBlur}
-          error={errors.name}
-        />
+          <FormInput
+            label="Name"
+            name="name"
+            value={values.name}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            error={errors.name}
+          />
 
-        <FormInput
-          label="Version"
-          name="version"
-          value={values.version}
-          onChange={handleChange}
-          onBlur={handleBlur}
-          error={errors.version}
-          placeholder="1.2.3"
-        />
+          <FormInput
+            label="Version"
+            name="version"
+            value={values.version}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            error={errors.version}
+            placeholder="1.2.3"
+          />
 
-        <FormInput
-          label="Source URL"
-          name="source_url"
-          value={values.source_url}
-          onChange={handleChange}
-          onBlur={handleBlur}
-          error={errors.source_url}
-          placeholder="https://github.com/owner/repo"
-        />
+          <FormInput
+            label="Source URL"
+            name="source_url"
+            value={values.source_url}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            error={errors.source_url}
+            placeholder="https://github.com/owner/repo"
+          />
 
-        <FormInput
-          label="Publisher Stellar Address"
-          name="publisher_address"
-          value={values.publisher_address}
-          onChange={handleChange}
-          onBlur={handleBlur}
-          error={errors.publisher_address}
-          placeholder="G..."
-        />
+          <FormInput
+            label="Publisher Stellar Address"
+            name="publisher_address"
+            value={values.publisher_address}
+            onChange={handleChange}
+            onBlur={handleBlur}
+            error={errors.publisher_address}
+            placeholder="G..."
+          />
 
-        <FormSelect
-          label="Network"
-          name="network"
-          value={values.network}
-          onChange={(e) => handleChange(e as React.ChangeEvent<HTMLInputElement & HTMLSelectElement>)}
-          options={[
-            { value: 'mainnet', label: 'Mainnet' },
-            { value: 'testnet', label: 'Testnet' },
-            { value: 'futurenet', label: 'Futurenet' },
-          ]}
-        />
+          <FormSelect
+            label="Network"
+            name="network"
+            value={values.network}
+            onChange={(e) => handleChange(e as React.ChangeEvent<HTMLInputElement & HTMLSelectElement>)}
+            options={[
+              { value: 'mainnet', label: 'Mainnet' },
+              { value: 'testnet', label: 'Testnet' },
+              { value: 'futurenet', label: 'Futurenet' },
+            ]}
+          />
 
-        <FormTextarea
-          label="Description"
-          name="description"
-          value={values.description}
-          onChange={handleChange}
-        />
+          <FormTextarea
+            label="Description"
+            name="description"
+            value={values.description}
+            onChange={handleChange}
+          />
 
-        <div className="flex flex-col sm:flex-row items-center sm:justify-between gap-2">
-          <button type="submit" className="w-full sm:w-auto px-4 py-2 rounded-lg bg-primary text-primary-foreground">
-            Publish
-          </button>
-          {status && <div className="text-sm text-muted-foreground w-full sm:w-auto text-center sm:text-left">{status}</div>}
-        </div>
-      </form>
+          <div className="flex flex-col sm:flex-row items-center sm:justify-between gap-2">
+            <button type="submit" className="w-full sm:w-auto px-4 py-2 rounded-lg bg-primary text-primary-foreground">
+              Publish
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

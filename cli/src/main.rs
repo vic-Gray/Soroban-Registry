@@ -4,6 +4,7 @@ mod backup;
 mod batch_verify;
 mod commands;
 mod config;
+mod contracts;
 mod conversions;
 mod coverage;
 mod events;
@@ -132,6 +133,12 @@ pub enum Commands {
         /// Output results as machine-readable JSON
         #[arg(long)]
         json: bool,
+    },
+
+    /// List and filter contracts in the registry
+    Contracts {
+        #[command(subcommand)]
+        action: ContractsCommands,
     },
 
     /// Detect breaking changes between contract versions
@@ -600,6 +607,49 @@ pub enum ConfigSubcommands {
     },
 }
 
+/// Sub-commands for the `contracts` group
+#[derive(Debug, Subcommand)]
+pub enum ContractsCommands {
+    /// List contracts with filtering and pagination
+    List {
+        /// Filter by network (mainnet, testnet, futurenet)
+        #[arg(long)]
+        network: Option<String>,
+
+        /// Filter by category (e.g., DEX, token, lending, oracle)
+        #[arg(long)]
+        category: Option<String>,
+
+        /// Maximum number of contracts to return
+        #[arg(long, default_value = "20")]
+        limit: usize,
+
+        /// Number of contracts to skip (for pagination)
+        #[arg(long, default_value = "0")]
+        offset: usize,
+
+        /// Sort by field: name, created_at, health_score, network
+        #[arg(long, default_value = "created_at")]
+        sort_by: String,
+
+        /// Sort order: asc or desc
+        #[arg(long, default_value = "desc")]
+        sort_order: String,
+
+        /// Output format: table, json, or csv
+        #[arg(long, default_value = "table")]
+        format: String,
+
+        /// Output results as JSON (shorthand for --format json)
+        #[arg(long)]
+        json: bool,
+
+        /// Output results as CSV (shorthand for --format csv)
+        #[arg(long)]
+        csv: bool,
+    },
+}
+
 /// Sub-commands for the `sla` group
 #[derive(Debug, Subcommand)]
 pub enum SlaCommands {
@@ -999,6 +1049,52 @@ async fn main() -> Result<()> {
             log::debug!("Command: list | limit={}", limit);
             commands::list(&cli.api_url, limit, network, json).await?;
         }
+        Commands::Contracts { action } => match action {
+            ContractsCommands::List {
+                network: net,
+                category,
+                limit,
+                offset,
+                sort_by,
+                sort_order,
+                format,
+                json,
+                csv,
+            } => {
+                log::debug!(
+                    "Command: contracts list | network={:?} category={:?} limit={} offset={}",
+                    net,
+                    category,
+                    limit,
+                    offset
+                );
+
+                // Determine output format
+                let output_format = if json {
+                    contracts::OutputFormat::Json
+                } else if csv {
+                    contracts::OutputFormat::Csv
+                } else {
+                    match format.as_str() {
+                        "json" => contracts::OutputFormat::Json,
+                        "csv" => contracts::OutputFormat::Csv,
+                        _ => contracts::OutputFormat::Table,
+                    }
+                };
+
+                contracts::list_contracts(
+                    &cli.api_url,
+                    net.as_deref(),
+                    category.as_deref(),
+                    limit,
+                    offset,
+                    Some(&sort_by),
+                    Some(&sort_order),
+                    output_format,
+                )
+                .await?;
+            }
+        },
         Commands::BreakingChanges { old_id, new_id, json } => {
             log::debug!("Command: breaking-changes | old={} new={}", old_id, new_id);
             commands::breaking_changes(&cli.api_url, &old_id, &new_id, json).await?;

@@ -235,7 +235,7 @@ pub struct PublishRequest {
     pub dependencies: Vec<DependencyDeclaration>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateContractMetadataRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -244,13 +244,13 @@ pub struct UpdateContractMetadataRequest {
     pub user_id: Option<Uuid>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ChangePublisherRequest {
     pub publisher_address: String,
     pub user_id: Option<Uuid>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateContractStatusRequest {
     pub status: String,
     pub error_message: Option<String>,

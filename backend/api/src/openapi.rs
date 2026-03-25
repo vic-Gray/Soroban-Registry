@@ -3,7 +3,6 @@ use crate::custom_metrics_handlers;
 use crate::deprecation_handlers;
 use crate::handlers;
 use crate::metrics_handler;
-use serde_json::Value;
 use shared::models::*;
 use utoipa::OpenApi;
 
@@ -17,8 +16,8 @@ use utoipa::OpenApi;
         handlers::get_contract_versions,
         handlers::get_contract_changelog,
         handlers::get_trust_score,
-        handlers::get_contract_state,
-        handlers::update_contract_state,
+        // `get_contract_state` / `update_contract_state` are currently stubs without
+        // `#[utoipa::path]`, and break OpenAPI generation. Omit until implemented.
         handlers::create_contract_version,
         handlers::publish_contract,
         handlers::create_publisher,
@@ -76,17 +75,14 @@ use utoipa::OpenApi;
             MigrationScript,
             DeploymentEnvironment,
             CanaryRelease,
-            ABTest,
+            AbTest,
             PerformanceMetric,
             CustomMetric,
-            MetricAnomaly,
-            AnalyticsReport,
-            ContractAuditLogEntry,
+            PerformanceAnomaly,
+            crate::handlers::ContractAuditLogEntry,
             ContractInteraction,
-            ArtifactType,
             ContractDependency,
             ImpactAnalysisResponse,
-            VerificationRequest,
             VerifyRequest,
             ContractAnalyticsResponse,
             DeploymentStats,

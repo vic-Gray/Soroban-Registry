@@ -60,7 +60,7 @@ fn map_query_rejection(err: QueryRejection) -> ApiError {
     )
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, sqlx::Type)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, sqlx::Type, utoipa::ToSchema)]
 #[sqlx(type_name = "contract_audit_event_type", rename_all = "snake_case")]
 #[allow(dead_code)]
 pub enum ContractAuditEventType {
@@ -71,7 +71,7 @@ pub enum ContractAuditEventType {
     PublisherChanged,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow, utoipa::ToSchema)]
 #[allow(dead_code)]
 pub struct ContractAuditLogEntry {
     pub id: Uuid,
@@ -159,15 +159,6 @@ async fn write_contract_audit_log(
     Ok(())
 }
 
-#[utoipa::path(
-    get,
-    path = "/health",
-    responses(
-        (status = 200, description = "Service is healthy", body = Object, example = json!({"status": "ok", "version": "0.1.0", "timestamp": "2023-10-27T10:00:00Z", "uptime_secs": 3600})),
-        (status = 503, description = "Service is unavailable or degraded", body = Object)
-    ),
-    tag = "Observability"
-)]
 fn split_audit_changes(
     changes: &serde_json::Value,
     ip_address: &str,
@@ -336,6 +327,15 @@ struct ContractInteractionInsert<'a> {
     network: &'a Network,
 }
 
+#[utoipa::path(
+    get,
+    path = "/health",
+    responses(
+        (status = 200, description = "Service is healthy", body = Object),
+        (status = 503, description = "Service is unavailable or degraded", body = Object)
+    ),
+    tag = "Observability"
+)]
 pub async fn health_check(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
     let uptime = state.started_at.elapsed().as_secs();
     let now = chrono::Utc::now().to_rfc3339();
@@ -1076,17 +1076,6 @@ async fn fetch_contract_identity(state: &AppState, id: &str) -> ApiResult<(Uuid,
     })
 }
 
-#[utoipa::path(
-    post,
-    path = "/api/contracts",
-    request_body = PublishRequest,
-    responses(
-        (status = 201, description = "Contract published successfully", body = Contract),
-        (status = 400, description = "Invalid input or contract ID"),
-        (status = 409, description = "Contract already registered")
-    ),
-    tag = "Contracts"
-)]
 async fn ensure_contract_exists(
     state: &AppState,
     contract_uuid: Uuid,
@@ -1130,6 +1119,17 @@ async fn fetch_contract_network(
     })
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/contracts",
+    request_body = PublishRequest,
+    responses(
+        (status = 201, description = "Contract published successfully", body = Contract),
+        (status = 400, description = "Invalid input or contract ID"),
+        (status = 409, description = "Contract already registered")
+    ),
+    tag = "Contracts"
+)]
 pub async fn publish_contract(
     State(state): State<AppState>,
     headers: HeaderMap,

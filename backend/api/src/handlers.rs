@@ -1317,6 +1317,7 @@ pub async fn publish_contract(
         &state.db,
         ContractInteractionInsert {
             contract_id: contract.id,
+            target_contract_id: None,
             account: Some(&publisher.stellar_address),
             interaction_type: "publish_success",
             transaction_hash: None,
@@ -2090,6 +2091,7 @@ pub async fn verify_contract(
                 &state.db,
                 ContractInteractionInsert {
                     contract_id: contract.id,
+                    target_contract_id: None,
                     account: None,
                     interaction_type: "publish_success",
                     transaction_hash: None,
@@ -2574,6 +2576,7 @@ pub async fn update_contract_status(
             &state.db,
             ContractInteractionInsert {
                 contract_id: contract_uuid,
+                target_contract_id: None,
                 account: None,
                 interaction_type,
                 transaction_hash: None,

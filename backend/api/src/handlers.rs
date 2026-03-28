@@ -376,7 +376,14 @@ pub enum ContractAuditEventType {
     PublisherChanged,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+#[derive(
+    Debug,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    sqlx::FromRow,
+    utoipa::ToSchema,
+)]
 #[allow(dead_code)]
 pub struct ContractAuditLogEntry {
     pub id: Uuid,
@@ -956,7 +963,7 @@ pub async fn health_check_detailed(State(state): State<AppState>) -> (StatusCode
     get,
     path = "/api/stats",
     responses(
-        (status = 200, description = "Global registry statistics", body = Object)
+        (status = 200, description = "Global registry statistics", body = Object, example = json!({"total_contracts": 150, "verified_contracts": 120, "total_publishers": 45}))
     ),
     tag = "Observability"
 )]
@@ -2039,6 +2046,20 @@ pub async fn get_contract_changelog(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/contracts/{id}/versions",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    request_body = CreateContractVersionRequest,
+    responses(
+        (status = 201, description = "Version created successfully", body = ContractVersion),
+        (status = 400, description = "Invalid input or version conflict"),
+        (status = 404, description = "Contract not found")
+    ),
+    tag = "Versions"
+)]
 pub async fn create_contract_version(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -2336,17 +2357,6 @@ async fn fetch_contract_identity(state: &AppState, id: &str) -> ApiResult<(Uuid,
     })
 }
 
-#[utoipa::path(
-    post,
-    path = "/api/contracts",
-    request_body = PublishRequest,
-    responses(
-        (status = 201, description = "Contract published successfully", body = Contract),
-        (status = 400, description = "Invalid input or contract ID"),
-        (status = 409, description = "Contract already registered")
-    ),
-    tag = "Contracts"
-)]
 async fn ensure_contract_exists(
     state: &AppState,
     contract_uuid: Uuid,
@@ -2390,6 +2400,17 @@ async fn fetch_contract_network(
     })
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/contracts",
+    request_body = PublishRequest,
+    responses(
+        (status = 201, description = "Contract published successfully", body = Contract),
+        (status = 400, description = "Invalid input or contract ID"),
+        (status = 409, description = "Contract already registered")
+    ),
+    tag = "Contracts"
+)]
 pub async fn publish_contract(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2897,6 +2918,17 @@ pub async fn get_contract_analytics(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/trust-score",
+    params(
+        ("id" = String, Path, description = "Contract UUID")
+    ),
+    responses(
+        (status = 501, description = "Not yet implemented – this endpoint is planned")
+    ),
+    tag = "Security"
+)]
 pub async fn get_trust_score() -> impl IntoResponse {
     planned_not_implemented_response()
 }

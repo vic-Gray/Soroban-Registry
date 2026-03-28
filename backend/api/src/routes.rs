@@ -4,12 +4,12 @@ use crate::{
     ab_test_handlers, auth, auth_handlers, batch_verify_handlers, breaking_changes,
     canary_handlers, category_handlers, compatibility_testing_handlers, custom_metrics_handlers,
     deprecation_handlers, handlers, metrics_handler, migration_handlers, performance_handlers,
-    resource_handlers, simulation_handlers, state::AppState, state::AppState, websocket
+    resource_handlers, simulation_handlers, state::AppState, websocket
 };
 
 use axum::{
     middleware,
-    routing::{get, patch, post, put},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 #[cfg(feature = "openapi")]
@@ -128,10 +128,6 @@ pub fn contract_routes() -> Router<AppState> {
             get(handlers::get_contract_analytics),
         )
         .route(
-            "/api/contracts/:id/dependencies",
-            get(crate::dependency_handlers::get_contract_dependencies),
-            "/api/contracts/:id/trust-score",
-            get(handlers::get_trust_score),
             "/api/analytics/dashboard",
             get(handlers::get_dashboard_analytics),
         )
@@ -236,9 +232,8 @@ pub fn openapi_routes() -> Router<AppState> {
 
 #[cfg(feature = "openapi")]
 pub fn openapi_routes() -> Router<AppState> {
-    Router::new().merge(
-        SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi::ApiDoc::openapi()),
-    )
+    Router::new()
+        .merge(SwaggerUi::new("/docs").url("/openapi.json", openapi::ApiDoc::openapi()))
 }
 
 pub fn publisher_routes() -> Router<AppState> {

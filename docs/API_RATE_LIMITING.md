@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Soroban Registry API implements rate limiting to ensure fair usage, prevent abuse, and maintain service quality for all users. Rate limits are applied per IP address and per endpoint, with different tiers based on request type.
+The Soroban Registry API implements rate limiting to ensure fair usage, prevent abuse, and maintain service quality for all users. Rate limits are applied using a sliding-window algorithm with identity-based quotas.
 
 ## Rate Limit Tiers
 
@@ -10,21 +10,39 @@ The Soroban Registry API implements rate limiting to ensure fair usage, prevent 
 
 | Tier | Limit | Description |
 |------|-------|-------------|
-| **Read Operations (GET)** | 100 requests/min | Standard read operations (contract search, retrieval, etc.) |
-| **Write Operations (POST/PUT/PATCH/DELETE)** | 20 requests/min | Contract publishing, updates, deletions |
-| **Authenticated Requests** | 1,000 requests/min | Requests with valid `Authorization` header |
-| **Health Checks** | 10,000 requests/min | `/health` endpoint for monitoring |
+| **Anonymous (per IP)** | 100 requests/min | Requests without an `Authorization` header |
+| **Authenticated (per token)** | 1,000 requests/min | Requests with an `Authorization` header |
+
+### Page-Size Aware Limits For `GET /api/contracts`
+
+`GET /api/contracts` uses page-size-aware rate limiting in addition to the standard read tier. The base read limit assumes a page size of `50`. Larger requested pages reduce the allowed request rate proportionally.
+
+Examples with the default 100 requests/min read tier:
+
+| Requested `limit` | Effective rate limit |
+|-------------------|----------------------|
+| `1-50` | 100 requests/min |
+| `51-100` | 50 requests/min |
+| `101-150` | 33 requests/min |
+| `951-1000` | 5 requests/min |
+
+Pagination validation for this endpoint is also enforced:
+
+- `limit` must be between `1` and `1000` (default `50`)
+- `offset` must be non-negative
+- Invalid values return `400 Bad Request`
 
 ### Endpoint-Specific Limits
+### Algorithm
 
-You can configure custom limits for specific endpoints using environment variables:
+The API uses a sliding-window request log:
 
-```bash
-RATE_LIMIT_ENDPOINT_POST_CONTRACTS_VERIFY=10
-RATE_LIMIT_ENDPOINT_GET_CONTRACTS_SEARCH=200
-```
+1. Each request timestamp is recorded for the caller identity.
+2. Timestamps older than the configured window are evicted.
+3. If requests in the current sliding window are at the quota, API returns `429`.
+4. `Retry-After` and `X-RateLimit-Reset` are calculated from the oldest request still in the window.
 
-The endpoint key format is: `{METHOD}_{NORMALIZED_PATH}` (e.g., `POST_CONTRACTS_VERIFY`).
+This avoids boundary spikes common in fixed-window implementations.
 
 ## Rate Limit Headers
 
@@ -58,11 +76,13 @@ Retry-After: 42
 Content-Type: application/json
 
 {
-  "error": "RateLimitExceeded",
+  "error_code": "RATE_LIMITED",
   "message": "Too many requests. Please retry after the indicated time.",
-  "code": 429,
-  "timestamp": "2026-02-24T12:34:56Z",
-  "correlation_id": "550e8400-e29b-41d4-a716-446655440000"
+  "details": {
+    "retry_after_seconds": 42,
+    "correlation_id": "550e8400-e29b-41d4-a716-446655440000"
+  },
+  "timestamp": "2026-02-24T12:34:56Z"
 }
 ```
 
@@ -446,26 +466,18 @@ Rate limits can be customized using environment variables:
 
 ```bash
 # Global limits (per minute)
-RATE_LIMIT_READ_PER_MINUTE=100          # Default: 100
-RATE_LIMIT_WRITE_PER_MINUTE=20          # Default: 20
+RATE_LIMIT_ANON_PER_MINUTE=100          # Default: 100
+# Backward-compatible fallback: RATE_LIMIT_READ_PER_MINUTE
 RATE_LIMIT_AUTH_PER_MINUTE=1000         # Default: 1000
-RATE_LIMIT_HEALTH_PER_MINUTE=10000      # Default: 10000
 
 # Time window in seconds
 RATE_LIMIT_WINDOW_SECONDS=60            # Default: 60
-
-# Per-endpoint overrides
-RATE_LIMIT_ENDPOINT_POST_CONTRACTS_VERIFY=10
-RATE_LIMIT_ENDPOINT_GET_CONTRACTS_SEARCH=200
 ```
 
 ## FAQ
 
 ### Q: Are rate limits per user or per IP address?
-**A:** Rate limits are applied **per IP address** and **per endpoint**. If multiple users share the same IP (e.g., behind a corporate NAT), they share the same rate limit. Authenticated requests (with `Authorization` header) receive higher limits.
-
-### Q: Do rate limits apply to health check endpoints?
-**A:** Yes, but with a much higher limit (10,000 requests/min by default) to support monitoring systems.
+**A:** Anonymous requests are rate-limited **per IP address**. Authenticated requests are rate-limited **per token** from the `Authorization` header.
 
 ### Q: What happens if I exceed the rate limit?
 **A:** You'll receive a `429 Too Many Requests` response with `Retry-After` header indicating when you can retry. Your request is not processed.
@@ -483,7 +495,7 @@ RATE_LIMIT_ENDPOINT_GET_CONTRACTS_SEARCH=200
 **A:** WebSocket connections are not currently supported. Rate limiting applies only to HTTP/REST API requests.
 
 ### Q: Can I burst above the limit temporarily?
-**A:** No, the rate limiter uses a fixed window algorithm. Once you hit the limit, you must wait until the window resets (indicated by `X-RateLimit-Reset` header).
+**A:** The rate limiter uses a sliding-window algorithm, so bursts are smoothed continuously over the last `RATE_LIMIT_WINDOW_SECONDS` interval.
 
 ## Troubleshooting
 

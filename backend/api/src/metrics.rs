@@ -155,6 +155,16 @@ pub static DB_POOL_UTILIZATION: Lazy<GaugeVec> = gauge_f64_vec!(
     "DB pool utilization ratio",
     &["pool"]
 );
+pub static SEARCH_QUERY_DURATION: Lazy<HistogramVec> = histogram_vec!(
+    "search_query_duration_seconds",
+    "Search query latency",
+    &["type"]
+);
+pub static SEARCH_SLOW_QUERIES: Lazy<IntCounterVec> = counter_vec!(
+    "search_slow_queries_total",
+    "Search queries slower than the threshold",
+    &["type"]
+);
 
 // ── Cache ───────────────────────────────────────────────────────────────────
 pub static CACHE_HITS: Lazy<IntCounter> = counter!("cache_hits_total", "Cache hits");
@@ -172,6 +182,10 @@ pub static VERIFICATION_CACHE_MISSES: Lazy<IntCounter> = counter!(
     "verification_cache_misses_total",
     "Verification cache misses"
 );
+
+pub static REDIS_CACHE_HITS: Lazy<IntCounter> = counter!("redis_cache_hits_total", "Redis cache hits");
+pub static REDIS_CACHE_MISSES: Lazy<IntCounter> =
+    counter!("redis_cache_misses_total", "Redis cache misses");
 
 // ── Resources ────────────────────────────────────────────────────────────────────
 pub static RESOURCE_RECORDINGS: Lazy<IntCounter> =
@@ -304,6 +318,8 @@ pub fn register_all(r: &Registry) -> prometheus::Result<()> {
     r.register(Box::new(DB_CONNECTION_WAIT_MS.clone()))?;
     r.register(Box::new(DB_POOL_TIMEOUTS.clone()))?;
     r.register(Box::new(DB_POOL_UTILIZATION.clone()))?;
+    r.register(Box::new(SEARCH_QUERY_DURATION.clone()))?;
+    r.register(Box::new(SEARCH_SLOW_QUERIES.clone()))?;
 
     r.register(Box::new(CACHE_HITS.clone()))?;
     r.register(Box::new(CACHE_MISSES.clone()))?;
@@ -314,6 +330,8 @@ pub fn register_all(r: &Registry) -> prometheus::Result<()> {
     r.register(Box::new(ABI_CACHE_MISSES.clone()))?;
     r.register(Box::new(VERIFICATION_CACHE_HITS.clone()))?;
     r.register(Box::new(VERIFICATION_CACHE_MISSES.clone()))?;
+    r.register(Box::new(REDIS_CACHE_HITS.clone()))?;
+    r.register(Box::new(REDIS_CACHE_MISSES.clone()))?;
     r.register(Box::new(RESOURCE_RECORDINGS.clone()))?;
     r.register(Box::new(RESOURCE_ALERTS_FIRED.clone()))?;
     r.register(Box::new(RESOURCE_FORECAST_RUNS.clone()))?;

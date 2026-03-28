@@ -181,14 +181,12 @@ fn parse_optional_parent_id(raw: &Option<String>) -> ApiResult<Option<Uuid>> {
     match raw {
         None => Ok(None),
         Some(s) if s.is_empty() => Ok(None),
-        Some(s) => Uuid::parse_str(s)
-            .map(Some)
-            .map_err(|_| {
-                ApiError::bad_request(
-                    "InvalidParentId",
-                    format!("Invalid parent category ID format: {}", s),
-                )
-            }),
+        Some(s) => Uuid::parse_str(s).map(Some).map_err(|_| {
+            ApiError::bad_request(
+                "InvalidParentId",
+                format!("Invalid parent category ID format: {}", s),
+            )
+        }),
     }
 }
 
@@ -522,20 +520,16 @@ pub async fn delete_category(
         return Err(ApiError::new(
             axum::http::StatusCode::FORBIDDEN,
             "DefaultCategory",
-            format!(
-                "'{}' is a default category and cannot be deleted",
-                name
-            ),
+            format!("'{}' is a default category and cannot be deleted", name),
         ));
     }
 
     // Count contracts currently using this category.
-    let usage_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM contracts WHERE category = $1")
-            .bind(&name)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|err| db_err("count category usage", err))?;
+    let usage_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contracts WHERE category = $1")
+        .bind(&name)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|err| db_err("count category usage", err))?;
 
     if usage_count > 0 && !query.force {
         return Err(ApiError::conflict(

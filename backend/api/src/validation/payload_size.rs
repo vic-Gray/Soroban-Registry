@@ -9,29 +9,17 @@
 use axum::{
     body::Body,
     extract::{connect_info::ConnectInfo, MatchedPath},
-    http::{Request, StatusCode},
+    http::Request,
     middleware::Next,
     response::{IntoResponse, Response},
-    Json,
 };
-use chrono::{SecondsFormat, Utc};
-use serde::Serialize;
 use std::net::SocketAddr;
 use uuid::Uuid;
 
+use crate::error::ApiError;
+
 const DEFAULT_MAX_PAYLOAD_MB: u64 = 5;
 const HEADER_CONTENT_LENGTH: &str = "content-length";
-
-#[derive(Debug, Serialize)]
-struct PayloadTooLargeResponse {
-    error: String,
-    message: String,
-    code: u16,
-    max_size_mb: u64,
-    max_size_bytes: u64,
-    timestamp: String,
-    correlation_id: String,
-}
 
 /// Get configured max payload size in bytes
 pub fn get_max_payload_bytes() -> u64 {
@@ -78,20 +66,21 @@ pub async fn payload_size_validation_middleware(
                         &correlation_id,
                     );
 
-                    let response = PayloadTooLargeResponse {
-                        error: "PayloadTooLarge".to_string(),
-                        message: format!(
+                    return Err(ApiError::new(
+                        axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                        "PAYLOAD_TOO_LARGE",
+                        format!(
                             "Request payload exceeds maximum size of {} MB ({} bytes)",
                             max_mb, max_bytes
                         ),
-                        code: 413,
-                        max_size_mb: max_mb,
-                        max_size_bytes: max_bytes,
-                        timestamp: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-                        correlation_id,
-                    };
-
-                    return Err((StatusCode::PAYLOAD_TOO_LARGE, Json(response)).into_response());
+                    )
+                    .with_details(serde_json::json!({
+                        "max_size_mb": max_mb,
+                        "max_size_bytes": max_bytes,
+                        "provided_size_bytes": size,
+                        "correlation_id": correlation_id
+                    }))
+                    .into_response());
                 }
             }
         }

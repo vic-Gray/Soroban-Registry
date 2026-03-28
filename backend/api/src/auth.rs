@@ -1,9 +1,4 @@
-use axum::{
-    extract::Request,
-    http::{header, StatusCode},
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, http::header, middleware::Next, response::Response};
 use chrono::{Duration, Utc};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
@@ -11,6 +6,8 @@ use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
+
+use crate::error::ApiError;
 
 pub const MIN_JWT_SECRET_LEN: usize = 32;
 
@@ -160,18 +157,23 @@ fn is_admin(claims: &AuthClaims) -> bool {
     claims.admin || matches!(claims.role.as_deref(), Some("admin" | "ADMIN" | "Admin"))
 }
 
-pub async fn require_admin(req: Request, next: Next) -> Result<Response, StatusCode> {
+pub async fn require_admin(req: Request, next: Next) -> Result<Response, ApiError> {
     let Some(token) = extract_bearer_token(&req) else {
-        return Err(StatusCode::UNAUTHORIZED);
+        return Err(ApiError::unauthorized(
+            "Authorization header with Bearer token is required",
+        ));
     };
 
-    let auth = AuthManager::from_env().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let auth = AuthManager::from_env()
+        .map_err(|_| ApiError::internal("Authentication configuration error"))?;
     let claims = auth
         .validate_jwt(token)
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(|_| ApiError::unauthorized("Invalid or expired authentication token"))?;
 
     if !is_admin(&claims) {
-        return Err(StatusCode::FORBIDDEN);
+        return Err(ApiError::forbidden(
+            "Administrative privileges are required for this endpoint",
+        ));
     }
 
     Ok(next.run(req).await)

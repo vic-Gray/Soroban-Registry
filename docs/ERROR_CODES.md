@@ -10,14 +10,43 @@ All API errors follow a consistent JSON structure:
 
 ```json
 {
-  "error": "ERROR_CODE",
+  "error_code": "BAD_REQUEST",
   "message": "Human-readable error description",
-  "code": 400,
-  "timestamp": "2026-02-24T12:34:56Z",
-  "correlation_id": "550e8400-e29b-41d4-a716-446655440000",
   "details": {
-    "field": "contract_id",
-    "reason": "Invalid format"
+    "reason": "INVALID_CONTRACT_ID",
+    "correlation_id": "550e8400-e29b-41d4-a716-446655440000"
+  },
+  "timestamp": "2026-02-24T12:34:56Z"
+}
+```
+
+Supported top-level `error_code` values are standardized and derived from HTTP status classes:
+
+```text
+BAD_REQUEST
+UNAUTHORIZED
+FORBIDDEN
+NOT_FOUND
+CONFLICT
+UNPROCESSABLE_ENTITY
+PAYLOAD_TOO_LARGE
+RATE_LIMITED
+INTERNAL_ERROR
+```
+
+`details` contains endpoint-specific context for client handling, for example validation field errors:
+
+```json
+{
+  "error_code": "BAD_REQUEST",
+  "message": "Validation failed for 2 fields",
+  "details": {
+    "reason": "VALIDATION_ERROR",
+    "field_errors": [
+      {"field": "contract_id", "message": "Invalid format"},
+      {"field": "network", "message": "Unsupported network"}
+    ],
+    "correlation_id": "550e8400-e29b-41d4-a716-446655440000"
   }
 }
 ```
@@ -26,12 +55,10 @@ All API errors follow a consistent JSON structure:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `error` | string | Machine-readable error code (e.g., `CONTRACT_NOT_FOUND`) |
+| `error_code` | string | Standardized machine-readable error class |
 | `message` | string | Human-readable error description |
-| `code` | integer | HTTP status code (400, 404, 500, etc.) |
+| `details` | object | Additional context (optional, varies by endpoint) |
 | `timestamp` | string | ISO 8601 timestamp when error occurred |
-| `correlation_id` | string | Unique ID for tracking this request across logs |
-| `details` | object | Additional context (optional, varies by error) |
 
 ## HTTP Status Codes
 

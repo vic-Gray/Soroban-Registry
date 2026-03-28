@@ -11,6 +11,7 @@ use axum::{
 };
 use chrono::{SecondsFormat, Utc};
 use serde::{de::DeserializeOwned, Serialize};
+use serde_json::json;
 use uuid::Uuid;
 
 /// A field-level validation error
@@ -32,12 +33,10 @@ impl FieldError {
 /// Validation error response body
 #[derive(Debug, Serialize)]
 pub struct ValidationErrorResponse {
-    pub error: String,
+    pub error_code: String,
     pub message: String,
-    pub errors: Vec<FieldError>,
-    pub code: u16,
+    pub details: serde_json::Value,
     pub timestamp: String,
-    pub correlation_id: String,
 }
 
 impl ValidationErrorResponse {
@@ -49,12 +48,14 @@ impl ValidationErrorResponse {
         };
 
         Self {
-            error: "ValidationError".to_string(),
+            error_code: "BAD_REQUEST".to_string(),
             message: error_summary,
-            errors,
-            code: 400,
+            details: json!({
+                "reason": "VALIDATION_ERROR",
+                "field_errors": errors,
+                "correlation_id": Uuid::new_v4().to_string()
+            }),
             timestamp: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
-            correlation_id: Uuid::new_v4().to_string(),
         }
     }
 }
@@ -323,9 +324,12 @@ mod tests {
 
         let response = ValidationErrorResponse::new(errors);
 
-        assert_eq!(response.error, "ValidationError");
-        assert_eq!(response.code, 400);
-        assert_eq!(response.errors.len(), 2);
+        assert_eq!(response.error_code, "BAD_REQUEST");
+        assert_eq!(response.details["reason"], "VALIDATION_ERROR");
+        assert_eq!(
+            response.details["field_errors"].as_array().unwrap().len(),
+            2
+        );
         assert!(response.message.contains("2 fields"));
     }
 

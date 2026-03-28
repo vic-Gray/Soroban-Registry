@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, ContractSearchParams, Contract } from '@/lib/api';
-import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import ContractCard from '@/components/ContractCard';
 import ContractCardSkeleton from '@/components/ContractCardSkeleton';
 import { ActiveFilters } from '@/components/contracts/ActiveFilters';
@@ -11,9 +10,15 @@ import { FilterPanel } from '@/components/contracts/FilterPanel';
 import { ResultsCount } from '@/components/contracts/ResultsCount';
 import { SortDropdown, SortBy } from '@/components/contracts/SortDropdown';
 import TagAutocomplete from '@/components/tags/TagAutocomplete';
-import { Filter, Package, SlidersHorizontal, X, Search, Sparkles, CheckCircle, Users, LayoutGrid, List } from 'lucide-react';
+import { Filter, Package, SlidersHorizontal, X, Search, Sparkles, CheckCircle, Users } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAnalytics } from '@/hooks/useAnalytics';
+import QueryBuilder from '@/components/contracts/QueryBuilder';
+import QuerySummary from '@/components/contracts/QuerySummary';
+import FavoriteSearches from '@/components/contracts/FavoriteSearches';
+import { useSearchUrlSync } from '@/hooks/useSearchUrlSync';
+import { QueryNode } from '@/lib/api';
+import { useMutation } from '@tanstack/react-query';
 
 const DEFAULT_PAGE_SIZE = 12;
 const CATEGORY_OPTIONS = [
@@ -118,6 +123,16 @@ type ContractsUiFilters = {
   page_size: number;
 };
 
+type ContractsResponse = Awaited<ReturnType<typeof api.getContracts>>;
+
+const EMPTY_CONTRACTS_RESPONSE: ContractsResponse = {
+  items: [],
+  total: 0,
+  page: 1,
+  page_size: DEFAULT_PAGE_SIZE,
+  total_pages: 1,
+};
+
 function getInitialFilters(searchParams: URLSearchParams): ContractsUiFilters {
   const query = searchParams.get('query') || searchParams.get('q') || '';
   const categories = parseCsvOrMulti(searchParams.getAll('category'));
@@ -151,7 +166,7 @@ function getInitialFilters(searchParams: URLSearchParams): ContractsUiFilters {
 
 export function ContractsContent() {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() ?? '/contracts';
   const searchParams = useSearchParams();
   const { logEvent } = useAnalytics();
   const lastSearchSignatureRef = useRef<string>('');
@@ -159,58 +174,113 @@ export function ContractsContent() {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const [filters, setFilters] = useState<ContractsUiFilters>(() =>
-    getInitialFilters(new URLSearchParams(searchParams.toString())),
+    getInitialFilters(new URLSearchParams(searchParams?.toString() ?? '')),
   );
 
-  const debouncedQuery = useDebouncedValue(filters.query, 300);
+  const { query, categories, languages, tags, networks, author, verified_only, sort_by, sort_order, page, page_size } = filters;
 
   useEffect(() => {
+    if (isAdvancedSearch) return; // Managed by useSearchUrlSync
+
     const params = new URLSearchParams();
-    if (debouncedQuery) params.set('query', debouncedQuery);
-    filters.categories.forEach((category) => params.append('category', category));
-    filters.languages.forEach((language) => params.append('language', language));
-    filters.tags.forEach((tag) => params.append('tag', tag));
-    filters.networks.forEach((network) => params.append('network', network));
-    if (filters.author) params.set('author', filters.author);
-    if (filters.verified_only) params.set('verified_only', 'true');
-    if (filters.sort_by) params.set('sort_by', filters.sort_by);
-    if (filters.sort_order) params.set('sort_order', filters.sort_order);
-    if (filters.page > 1) params.set('page', String(filters.page));
-    params.set('page_size', String(filters.page_size));
+    if (query) params.set('query', query);
+    categories.forEach((category) => params.append('category', category));
+    languages.forEach((language) => params.append('language', language));
+    tags.forEach((tag) => params.append('tag', tag));
+    networks.forEach((network) => params.append('network', network));
+    if (author) params.set('author', author);
+    if (verified_only) params.set('verified_only', 'true');
+    if (sort_by) params.set('sort_by', sort_by);
+    if (sort_order) params.set('sort_order', sort_order);
+    if (page > 1) params.set('page', String(page));
+    params.set('page_size', String(page_size));
 
     const next = params.toString();
     router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
-  }, [debouncedQuery, filters, pathname, router]);
+  }, [query, categories, languages, tags, networks, author, verified_only, sort_by, sort_order, page, page_size, pathname, router]);
 
-  const apiParams = useMemo<ContractSearchParams>(
-    () => ({
-      query: debouncedQuery || undefined,
-      categories: filters.categories.length > 0 ? filters.categories : undefined,
-      languages: filters.languages.length > 0 ? filters.languages : undefined,
-      tags: filters.tags.length > 0 ? filters.tags : undefined,
-      author: filters.author || undefined,
-      networks: filters.networks.length > 0 ? filters.networks : undefined,
-      verified_only: filters.verified_only,
-      sort_by: filters.sort_by,
-      sort_order: filters.sort_order,
-      page: filters.page,
-      page_size: filters.page_size,
-    }),
-    [debouncedQuery, filters],
-  );
-
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching } = useQuery<Awaited<ReturnType<typeof api.getContracts>>>({
     queryKey: ['contracts', apiParams],
     queryFn: () => api.getContracts(apiParams),
-    placeholderData: (previousData) => previousData,
+    placeholderData: (previousData) => previousData ?? EMPTY_CONTRACTS_RESPONSE,
   });
+
+  const data = useMemo(() => {
+    const all = allContracts?.items ?? [];
+
+    let filtered = all;
+
+    if (filters.query) {
+      const q = filters.query.toLowerCase();
+      filtered = filtered.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          (c.description && c.description.toLowerCase().includes(q)) ||
+          c.tags.some((t) => t.toLowerCase().includes(q)),
+      );
+    }
+
+    if (filters.networks.length > 0) {
+      filtered = filtered.filter((c) => filters.networks.includes(c.network as never));
+    }
+
+    if (filters.categories.length > 0) {
+      filtered = filtered.filter((c) => c.category && filters.categories.includes(c.category));
+    }
+
+    if (filters.languages.length > 0) {
+      const langs = filters.languages.map((l) => l.toLowerCase());
+      filtered = filtered.filter((c) =>
+        c.tags.some((t) => langs.includes(t.toLowerCase())),
+      );
+    }
+
+    if (filters.tags.length > 0) {
+      filtered = filtered.filter((c) =>
+        filters.tags.every((tag) => c.tags.includes(tag)),
+      );
+    }
+
+    if (filters.author) {
+      const author = filters.author.toLowerCase();
+      filtered = filtered.filter((c) =>
+        c.publisher_id.toLowerCase().includes(author),
+      );
+    }
+
+    if (filters.verified_only) {
+      filtered = filtered.filter((c) => c.is_verified);
+    }
+
+    // Sort
+    const order = filters.sort_order === 'asc' ? 1 : -1;
+    filtered = [...filtered].sort((a, b) => {
+      switch (filters.sort_by) {
+        case 'name':
+          return order * a.name.localeCompare(b.name);
+        case 'popularity':
+          return order * ((a.popularity_score ?? 0) - (b.popularity_score ?? 0));
+        case 'updated_at':
+          return order * (new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime());
+        default:
+          return order * (new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      }
+    });
+
+    // Paginate
+    const total = filtered.length;
+    const total_pages = Math.max(1, Math.ceil(total / filters.page_size));
+    const start = (filters.page - 1) * filters.page_size;
+    const items = filtered.slice(start, start + filters.page_size);
+
+    return { items, total, page: filters.page, page_size: filters.page_size, total_pages };
+  }, [allContracts, filters]);
 
   const { data: stats } = useQuery({
     queryKey: ['stats'],
     queryFn: () => api.getStats(),
   });
 
-  const isEmptyResult = (data?.total ?? 0) === 0;
   const paginationRange = useMemo(
     () => (data ? getPaginationRange(filters.page, data.total_pages) : []),
     [filters.page, data],
@@ -218,7 +288,7 @@ export function ContractsContent() {
 
   useEffect(() => {
     const payload = {
-      keyword: debouncedQuery || '',
+      keyword: filters.query || '',
       categories: filters.categories,
       languages: filters.languages,
       networks: filters.networks,
@@ -246,7 +316,7 @@ export function ContractsContent() {
     lastSearchSignatureRef.current = signature;
 
     logEvent('search_performed', payload);
-  }, [debouncedQuery, filters, logEvent]);
+  }, [filters.query, filters, logEvent]);
 
   const clearAllFilters = () =>
     setFilters((current) => ({
@@ -266,10 +336,10 @@ export function ContractsContent() {
   const activeFilterChips = useMemo(() => {
     const chips: Array<{ id: string; label: string; onRemove: () => void }> = [];
 
-    if (debouncedQuery) {
+    if (filters.query) {
       chips.push({
         id: 'query',
-        label: `Search: ${debouncedQuery}`,
+        label: `Search: ${filters.query}`,
         onRemove: () => setFilters((current) => ({ ...current, query: '', page: 1 })),
       });
     }
@@ -352,7 +422,7 @@ export function ContractsContent() {
     }
 
     return chips;
-  }, [debouncedQuery, filters]);
+  }, [filters.query, filters]);
 
   const filterPanel = (
     <FilterPanel
@@ -413,46 +483,83 @@ export function ContractsContent() {
               Search, filter, and find the perfect building blocks for your project.
             </p>
 
+            {/* Search mode toggle */}
+            <div className="flex items-center justify-center gap-4 mb-8">
+              <button 
+                onClick={() => {
+                  setIsAdvancedSearch(false);
+                  clearUrl();
+                }}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${!isAdvancedSearch ? 'bg-primary text-primary-foreground shadow-md' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                Basic Search
+              </button>
+              <button 
+                onClick={() => setIsAdvancedSearch(true)}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${isAdvancedSearch ? 'bg-primary text-primary-foreground shadow-md' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                Advanced Builder
+              </button>
+            </div>
+
             {/* Inline search */}
             <div className="max-w-2xl mx-auto mb-10">
-              <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                <input
-                  type="text"
-                  value={filters.query}
-                  onChange={(e) => setFilters((current) => ({ ...current, query: e.target.value, page: 1 }))}
-                  placeholder="Search contracts by name, category, or tag..."
-                  aria-label="Search contracts"
-                  aria-keyshortcuts="/"
-                  className="w-full pl-12 pr-24 py-4 rounded-xl border border-border bg-background text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-lg"
-                />
-                {filters.query && (
+              {!isAdvancedSearch ? (
+                <div className="relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={filters.query}
+                    onChange={(e) => setFilters((current) => ({ ...current, query: e.target.value, page: 1 }))}
+                    placeholder="Search contracts by name, category, or tag..."
+                    aria-label="Search contracts"
+                    aria-keyshortcuts="/"
+                    className="w-full pl-12 pr-24 py-4 rounded-xl border border-border bg-background text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-lg"
+                  />
+                  {filters.query && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        logEvent('search_performed', {
+                          keyword: '',
+                          action: 'clear_query',
+                        });
+                        setFilters((current) => ({ ...current, query: '', page: 1 }));
+                      }}
+                      className="absolute right-20 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label="Clear search"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => {
-                      logEvent('search_performed', {
-                        keyword: '',
-                        action: 'clear_query',
-                      });
-                      setFilters((current) => ({ ...current, query: '', page: 1 }));
-                    }}
-                    className="absolute right-20 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:text-foreground transition-colors"
-                    aria-label="Clear search"
+                    onClick={() => setMobileFiltersOpen(true)}
+                    className="md:hidden absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity font-medium text-sm"
                   >
-                    <X className="w-4 h-4" />
+                    Filters
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setMobileFiltersOpen(true)}
-                  className="md:hidden absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity font-medium text-sm"
-                >
-                  Filters
-                </button>
-                <div className="hidden md:flex absolute right-2 top-1/2 -translate-y-1/2 items-center gap-2">
-                  <kbd className="px-2 py-1 rounded bg-muted text-muted-foreground text-xs font-mono border border-border">/</kbd>
+                  <div className="hidden md:flex absolute right-2 top-1/2 -translate-y-1/2 items-center gap-2">
+                    <kbd className="px-2 py-1 rounded bg-muted text-muted-foreground text-xs font-mono border border-border">/</kbd>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-6 text-left">
+                  <QueryBuilder 
+                    initialQuery={advancedQuery || undefined}
+                    onChange={(q) => setAdvancedQuery(q)}
+                    onSearch={() => {
+                      if (advancedQuery) syncToUrl(advancedQuery);
+                      refetch();
+                    }}
+                    onSave={() => {
+                      const name = prompt('Enter a name for this favorite search:');
+                      if (name) saveFavoriteMutation.mutate(name);
+                    }}
+                  />
+                  {advancedQuery && <QuerySummary query={advancedQuery} />}
+                </div>
+              )}
             </div>
 
             {/* Stats row */}
@@ -528,31 +635,50 @@ export function ContractsContent() {
 
         <div className="flex gap-8 mt-6">
           {/* Sidebar filters (desktop) */}
-          <aside className="hidden md:block w-64 flex-shrink-0">
+          <aside className="hidden md:flex flex-col w-72 flex-shrink-0 gap-6">
             <div className="gradient-border-card p-5 sticky top-20">
               <div className="flex items-center gap-2 mb-5">
                 <Filter className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-semibold text-foreground">Filters</h3>
+                <h3 className="text-sm font-semibold text-foreground">{isAdvancedSearch ? 'Search Context' : 'Filters'}</h3>
               </div>
-              {filterPanel}
-
-              <div className="mt-5 pt-4 border-t border-border">
-                <div className="w-full">
-                  <TagAutocomplete
-                    onSelect={(tag) =>
-                      setFilters((current) => {
-                        if (current.tags.includes(tag.name)) return current;
-                        return {
-                          ...current,
-                          tags: [...current.tags, tag.name],
-                          page: 1,
-                        };
-                      })
-                    }
-                    placeholder="Filter by tag..."
+              
+              {!isAdvancedSearch ? (
+                <>
+                  {filterPanel}
+                  <div className="mt-5 pt-4 border-t border-border">
+                    <div className="w-full">
+                      <TagAutocomplete
+                        onSelect={(tag) =>
+                          setFilters((current) => {
+                            if (current.tags.includes(tag.name)) return current;
+                            return {
+                              ...current,
+                              tags: [...current.tags, tag.name],
+                              page: 1,
+                            };
+                          })
+                        }
+                        placeholder="Filter by tag..."
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-6">
+                  <FavoriteSearches 
+                    onLoad={(q) => {
+                      setAdvancedQuery(q);
+                      syncToUrl(q);
+                    }}
                   />
+                  <div className="p-4 bg-primary/5 rounded-xl border border-primary/10">
+                    <p className="text-xs text-muted-foreground font-medium mb-2">PRO TIP</p>
+                    <p className="text-xs leading-relaxed text-foreground">
+                      Use the builder to create complex logic like <span className="text-primary font-bold">Category = DeFi AND (Network = mainnet OR Verified = true)</span>.
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </aside>
 

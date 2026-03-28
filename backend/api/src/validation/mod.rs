@@ -45,15 +45,17 @@
 //!
 //! ```json
 //! {
-//!   "error": "ValidationError",
+//!   "error_code": "BAD_REQUEST",
 //!   "message": "Validation failed for 2 fields",
-//!   "errors": [
-//!     {"field": "contract_id", "message": "must be a valid Stellar contract ID"},
-//!     {"field": "name", "message": "must be at least 1 character"}
-//!   ],
-//!   "code": 400,
-//!   "timestamp": "2026-02-20T10:30:00Z",
-//!   "correlation_id": "uuid-here"
+//!   "details": {
+//!     "reason": "VALIDATION_ERROR",
+//!     "field_errors": [
+//!       {"field": "contract_id", "message": "must be a valid Stellar contract ID"},
+//!       {"field": "name", "message": "must be at least 1 character"}
+//!     ],
+//!     "correlation_id": "uuid-here"
+//!   },
+//!   "timestamp": "2026-02-20T10:30:00Z"
 //! }
 //! ```
 

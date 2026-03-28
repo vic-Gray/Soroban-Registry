@@ -61,6 +61,7 @@ const MAX_DEPENDENCIES_COUNT: usize = 50;
 impl Validatable for PublishRequest {
     fn sanitize(&mut self) {
         self.contract_id = normalize_contract_id(&self.contract_id);
+        self.wasm_hash = trim(&self.wasm_hash);
         self.name = sanitize_name(&self.name);
         sanitize_description_optional(&mut self.description);
         self.publisher_address = normalize_stellar_address(&self.publisher_address);
@@ -84,6 +85,8 @@ impl Validatable for PublishRequest {
         let mut builder = ValidationBuilder::new();
 
         builder.check("contract_id", || validate_contract_id(&self.contract_id));
+
+        builder.check("wasm_hash", || validate_wasm_hash(&self.wasm_hash));
 
         builder.check("name", || {
             if self.name.is_empty() {
@@ -254,6 +257,12 @@ impl Validatable for CreateInteractionRequest {
         if let Some(ref mut t) = self.transaction_hash {
             *t = trim(t);
         }
+        if let Some(ref mut target) = self.target_contract_id {
+            *target = trim(target);
+            if target.is_empty() {
+                self.target_contract_id = None;
+            }
+        }
         if let Some(ref mut p) = self.parameters {
             super::sanitizers::sanitize_json_value(p);
         }
@@ -275,6 +284,11 @@ impl Validatable for CreateInteractionRequest {
 
         if let Some(ref t) = self.transaction_hash {
             builder.check("transaction_hash", || validate_length(t, 64, 64));
+        }
+
+        if let Some(ref target) = self.target_contract_id {
+            builder.check("target_contract_id", || validate_length(target, 1, 128));
+            builder.check("target_contract_id", || validate_no_xss(target));
         }
 
         if let Some(ref p) = self.parameters {
@@ -555,6 +569,27 @@ mod tests {
     }
 
     #[test]
+    fn test_publish_request_invalid_wasm_hash() {
+        let req = PublishRequest {
+            contract_id: valid_contract_id(),
+            wasm_hash: "invalid".to_string(),
+            name: "My Contract".to_string(),
+            description: None,
+            network: Network::Testnet,
+            category: None,
+            tags: vec![],
+            source_url: None,
+            publisher_address: valid_stellar_address(),
+            dependencies: vec![],
+        };
+
+        let result = req.validate();
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.field == "wasm_hash"));
+    }
+
+    #[test]
     fn test_publish_request_sanitization() {
         let mut req = PublishRequest {
             contract_id: "  cdlzfc3syjydzt7k67vz75hpjvieuvnixf47zg2fb2rmqqvu2hhgcysc  ".to_string(),
@@ -573,7 +608,7 @@ mod tests {
         req.sanitize();
 
         assert_eq!(req.contract_id, valid_contract_id());
-        assert_eq!(req.wasm_hash.trim(), "a".repeat(64));
+        assert_eq!(req.wasm_hash, "a".repeat(64));
         assert_eq!(req.name, "My Contract");
         assert_eq!(req.description, Some("alert('xss')Description".to_string()));
         assert_eq!(req.publisher_address, valid_stellar_address());

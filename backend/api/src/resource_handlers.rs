@@ -3,6 +3,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 
+use crate::error::ApiError;
 use crate::state::AppState;
 
 pub async fn get_contract_resources(
@@ -12,12 +13,8 @@ pub async fn get_contract_resources(
     let mgr = state.resource_mgr.read().unwrap();
     match mgr.summary(&id) {
         Some(summary) => (StatusCode::OK, Json(summary)).into_response(),
-        None => (
-            StatusCode::NOT_FOUND,
-            Json(
-                serde_json::json!({ "error": "no resource data for contract", "contract_id": id }),
-            ),
-        )
+        None => ApiError::not_found("RESOURCE_DATA_NOT_FOUND", "No resource data for contract")
+            .with_details(serde_json::json!({ "contract_id": id }))
             .into_response(),
     }
 }
@@ -27,6 +24,7 @@ mod tests {
     use super::*;
     use crate::auth::AuthManager;
     use crate::cache::{CacheConfig, CacheLayer};
+    use crate::contract_events::ContractEventHub;
     use crate::metrics;
     use crate::resource_tracking::{ResourceManager, ResourceUsage};
     use axum::extract::{Path, State};
@@ -56,7 +54,10 @@ mod tests {
             is_shutting_down: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             health_monitor_status: crate::health_monitor::HealthMonitorStatus::default(),
             resource_mgr: Arc::new(RwLock::new(ResourceManager::new())),
-            auth_mgr: Arc::new(RwLock::new(AuthManager::new("test-secret".to_string()))),
+            auth_mgr: Arc::new(RwLock::new(AuthManager::new(
+                "test-secret-test-secret-test-se".to_string(),
+            ))),
+            contract_events: Arc::new(ContractEventHub::from_env()),
         }
     }
 

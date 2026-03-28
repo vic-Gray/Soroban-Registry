@@ -3,6 +3,7 @@ use crate::custom_metrics_handlers;
 use crate::deprecation_handlers;
 use crate::handlers;
 use crate::metrics_handler;
+use crate::similarity_handlers;
 use serde_json::Value;
 use shared::models::*;
 use utoipa::OpenApi;
@@ -13,6 +14,7 @@ use utoipa::OpenApi;
         handlers::health_check,
         handlers::get_stats,
         handlers::list_contracts,
+        handlers::get_contracts_batch,
         handlers::get_contract,
         handlers::get_contract_versions,
         handlers::create_contract_version,
@@ -29,6 +31,8 @@ use utoipa::OpenApi;
         handlers::get_contract_graph,
         handlers::get_impact_analysis,
         handlers::get_trending_contracts,
+        similarity_handlers::get_similar_contracts,
+        similarity_handlers::analyze_contract_similarity_batch,
         handlers::verify_contract,
         handlers::update_contract_metadata,
         handlers::change_contract_publisher,
@@ -71,6 +75,15 @@ use utoipa::OpenApi;
             DeploymentEnvironment,
             CanaryRelease,
             ABTest,
+            ContractSimilaritySignature,
+            ContractSimilarityReport,
+            SimilarityMatchType,
+            SimilarityReviewStatus,
+            ContractSimilarityResult,
+            ContractSimilarityResponse,
+            BatchSimilarityAnalysisRequest,
+            BatchSimilarityAnalysisItem,
+            BatchSimilarityAnalysisResponse,
             PerformanceMetric,
             CustomMetric,
             MetricAnomaly,

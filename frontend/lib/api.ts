@@ -188,6 +188,35 @@ export interface ContractChangelogResponse {
   entries: ContractChangelogEntry[];
 }
 
+export interface RecommendationReason {
+  code: string;
+  message: string;
+  weight: number;
+}
+
+export interface RecommendedContract {
+  id: string;
+  contract_id: string;
+  name: string;
+  description?: string;
+  network: Network;
+  category?: string;
+  popularity_score: number;
+  similarity_score: number;
+  recommendation_score: number;
+  reasons: RecommendationReason[];
+  explanation: string;
+}
+
+export interface ContractRecommendationsResponse {
+  contract_id: string;
+  algorithm: string;
+  ab_variant: string;
+  cached: boolean;
+  generated_at: string;
+  recommendations: RecommendedContract[];
+}
+
 export interface Publisher {
   id: string;
   stellar_address: string;
@@ -795,6 +824,22 @@ export const api = {
     const response = await fetch(`${API_URL}/api/contracts/${id}/analytics`);
     if (!response.ok) throw new Error("Failed to fetch contract analytics");
     return response.json();
+  },
+
+  async getContractRecommendations(
+    id: string,
+    params?: { limit?: number; network?: Network; subject?: string; algorithm?: "hybrid_v1" | "hybrid_v2" },
+  ): Promise<ContractRecommendationsResponse> {
+    const search = new URLSearchParams();
+    if (params?.limit != null) search.set("limit", String(params.limit));
+    if (params?.network) search.set("network", params.network);
+    if (params?.subject) search.set("subject", params.subject);
+    if (params?.algorithm) search.set("algorithm", params.algorithm);
+
+    return handleApiCall<ContractRecommendationsResponse>(
+      () => fetch(`${API_URL}/api/contracts/${id}/recommendations${search.toString() ? `?${search.toString()}` : ""}`),
+      `/api/contracts/${id}/recommendations`
+    );
   },
 
   async publishContract(data: PublishRequest): Promise<Contract> {

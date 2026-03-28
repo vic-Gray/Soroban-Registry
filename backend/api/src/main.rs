@@ -1,3 +1,5 @@
+mod aggregation;
+mod analytics;
 mod audit_handlers;
 mod audit_routes;
 mod benchmark_engine;
@@ -5,15 +7,15 @@ mod benchmark_handlers;
 mod benchmark_routes;
 mod checklist;
 mod detector;
+mod error;
 mod handlers;
+mod incident_handlers;
+mod incident_routes;
+mod models;
+mod rate_limit;
 mod routes;
 mod scoring;
 mod state;
-mod checklist;
-mod detector;
-mod scoring;
-mod audit_handlers;
-mod audit_routes;
 
 
 use anyhow::Result;
@@ -78,6 +80,7 @@ async fn main() -> Result<()> {
         .merge(routes::publisher_routes())
         .merge(routes::health_routes())
         .merge(routes::migration_routes())
+        .merge(incident_routes::incident_routes())
         .fallback(handlers::route_not_found)
         .layer(middleware::from_fn(request_logger))
         .layer(middleware::from_fn_with_state(

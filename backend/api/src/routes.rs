@@ -86,6 +86,14 @@ pub fn contract_routes() -> Router<AppState> {
             get(handlers::get_contract_changelog),
         )
         .route(
+            "/api/contracts/:id/versions/:version/source",
+            get(handlers::get_contract_source).post(handlers::upload_contract_source),
+        )
+        .route(
+            "/api/contracts/:id/versions/:version/source/diff",
+            get(handlers::get_contract_source_diff),
+        )
+        .route(
             "/contracts/:id/changelog",
             get(handlers::get_contract_changelog),
         )

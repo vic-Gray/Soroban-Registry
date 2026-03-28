@@ -159,6 +159,41 @@ pub struct ContractVersion {
     pub signature_algorithm: Option<String>,
 }
 
+/// Source artifacts uploaded for each contract version
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct ContractSource {
+    pub id: Uuid,
+    pub contract_version_id: Uuid,
+    pub source_format: SourceFormat,
+    pub storage_backend: String,
+    pub storage_key: String,
+    pub source_hash: String,
+    pub source_size: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Source format enum
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
+#[sqlx(type_name = "source_format_type", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum SourceFormat {
+    Rust,
+    Wasm,
+}
+
+/// Audit records for source artifact access
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct SourceAccessLog {
+    pub id: Uuid,
+    pub contract_source_id: Uuid,
+    pub action: String,
+    pub actor: Option<String>,
+    pub request_ip: Option<String>,
+    pub user_agent: Option<String>,
+    pub details: Option<serde_json::Value>,
+    pub created_at: DateTime<Utc>,
+}
+
 /// Verification status and details
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct Verification {

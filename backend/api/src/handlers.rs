@@ -1402,7 +1402,6 @@ pub async fn list_contracts(
                 response.next_cursor = Some(next_cursor);
             }
         }
-    }
 
     // Generate prev cursor if we have items and are not on the first page
     if params.cursor.is_some() || page > 1 {

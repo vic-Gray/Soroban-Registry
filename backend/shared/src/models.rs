@@ -334,6 +334,31 @@ pub struct Publisher {
     pub created_at: DateTime<Utc>,
 }
 
+/// User preferences and settings
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+#[schema(example = json!({
+    "id": "550e8400-e29b-41d4-a716-446655440002",
+    "publisher_id": "550e8400-e29b-41d4-a716-446655440001",
+    "theme": "dark",
+    "language": "en",
+    "default_network": "testnet",
+    "favorites": ["550e8400-e29b-41d4-a716-446655440000"],
+    "extensible_settings": {},
+    "created_at": "2023-10-27T10:00:00Z",
+    "updated_at": "2023-10-27T10:00:00Z"
+}))]
+pub struct UserPreferences {
+    pub id: Uuid,
+    pub publisher_id: Uuid,
+    pub theme: String,
+    pub language: String,
+    pub default_network: Network,
+    pub favorites: serde_json::Value,
+    pub extensible_settings: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 /// Contract interaction statistics
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct ContractStats {

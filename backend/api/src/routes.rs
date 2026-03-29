@@ -4,7 +4,7 @@ use crate::{
     ab_test_handlers, auth, auth_handlers, batch_verify_handlers, breaking_changes,
     canary_handlers, category_handlers, compatibility_testing_handlers, contract_events,
     custom_metrics_handlers, deprecation_handlers, handlers, metrics_handler, migration_handlers,
-    performance_handlers, resource_handlers, similarity_handlers, simulation_handlers,
+    performance_handlers, resource_handlers, review_handlers, similarity_handlers, simulation_handlers,
     state::AppState, websocket,
 };
 
@@ -220,6 +220,27 @@ pub fn contract_routes() -> Router<AppState> {
         .route(
             "/api/contracts/simulate-deploy",
             post(simulation_handlers::simulate_deploy),
+        )
+        // Review system endpoints
+        .route(
+            "/api/contracts/:id/reviews",
+            get(review_handlers::get_reviews).post(review_handlers::create_review),
+        )
+        .route(
+            "/api/contracts/:id/reviews/:review_id/vote",
+            post(review_handlers::vote_review),
+        )
+        .route(
+            "/api/contracts/:id/reviews/:review_id/flag",
+            post(review_handlers::flag_review),
+        )
+        .route(
+            "/api/contracts/:id/reviews/:review_id/moderate",
+            post(review_handlers::moderate_review),
+        )
+        .route(
+            "/api/contracts/:id/rating-stats",
+            get(review_handlers::get_rating_stats),
         )
         .merge(favorite_routes())
 }

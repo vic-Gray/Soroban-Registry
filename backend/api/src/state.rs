@@ -9,6 +9,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tokio::sync::broadcast;
+use shared::error::RegistryError;
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub enum RealtimeEvent {
@@ -55,7 +56,7 @@ impl AppState {
         registry: Registry,
         job_engine: Arc<soroban_batch::engine::JobEngine>,
         is_shutting_down: Arc<AtomicBool>,
-    ) -> Result<Self, crate::shared::error::RegistryError> {
+    ) -> Result<Self, RegistryError> {
         let config = CacheConfig::from_env();
         let auth_mgr = Arc::new(RwLock::new(
             AuthManager::from_env().expect("JWT config validated at startup"),

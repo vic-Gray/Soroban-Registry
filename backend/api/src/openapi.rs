@@ -3,6 +3,7 @@ use crate::custom_metrics_handlers;
 use crate::deprecation_handlers;
 use crate::handlers;
 use crate::metrics_handler;
+use crate::review_handlers;
 use crate::similarity_handlers;
 use serde_json::Value;
 use shared::models::*;
@@ -59,6 +60,13 @@ use utoipa::OpenApi;
         deprecation_handlers::get_deprecation_info,
         deprecation_handlers::deprecate_contract,
         metrics_handler::metrics_endpoint,
+        // Review system
+        review_handlers::get_reviews,
+        review_handlers::create_review,
+        review_handlers::vote_review,
+        review_handlers::flag_review,
+        review_handlers::moderate_review,
+        review_handlers::get_rating_stats,
     ),
     components(
         schemas(
@@ -129,6 +137,17 @@ use utoipa::OpenApi;
             custom_metrics_handlers::MetricSampleResponse,
             custom_metrics_handlers::MetricSample,
             custom_metrics_handlers::MetricCatalogEntry,
+            // Review system
+            ReviewResponse,
+            ReviewStatus,
+            ReviewSortBy,
+            CreateReviewRequest,
+            ReviewVoteRequest,
+            ReviewVoteResponse,
+            FlagReviewRequest,
+            ModerateReviewRequest,
+            ContractRatingStats,
+            RatingDistribution,
         )
     ),
     tags(
@@ -147,6 +166,7 @@ use utoipa::OpenApi;
         (name = "Deployments", description = "Deployment management"),
         (name = "Versions", description = "Contract version history and management"),
         (name = "Security", description = "Security and trust score assessments"),
+        (name = "Reviews", description = "Contract reviews and ratings"),
     ),
     modifiers(&SecurityAddon)
 )]

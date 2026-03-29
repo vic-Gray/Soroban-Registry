@@ -2460,3 +2460,163 @@ pub struct DashboardAnalyticsResponse {
     pub deployment_trends: Vec<DeploymentTrend>,
     pub recent_additions: Vec<Contract>,
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONTRACT REVIEW SYSTEM (Issue: Review System Implementation)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Review status for moderation workflow
+/// New reviews start as "pending" and must be approved before becoming visible
+#[derive(
+    Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema, PartialEq, Default,
+)]
+#[sqlx(type_name = "review_status", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum ReviewStatus {
+    /// Review is pending approval (default for new reviews)
+    #[default]
+    Pending,
+    /// Review has been approved and is visible to users
+    Approved,
+    /// Review has been rejected and is hidden
+    Rejected,
+}
+
+/// Sort options for fetching reviews
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewSortBy {
+    /// Sort by helpful votes (highest first)
+    MostHelpful,
+    /// Sort by creation date (newest first)
+    MostRecent,
+    /// Sort by rating (highest first)
+    HighestRated,
+    /// Sort by rating (lowest first)
+    LowestRated,
+}
+
+/// Request to create a new contract review
+/// Rating must be between 1.0 and 5.0 (inclusive)
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateReviewRequest {
+    /// Rating from 1.0 to 5.0 (one decimal place allowed)
+    #[schema(example = 4.5, minimum = 1.0, maximum = 5.0)]
+    pub rating: f64,
+    /// Optional review text
+    #[schema(example = "Great contract! Very well optimized and easy to integrate.")]
+    pub review_text: Option<String>,
+    /// Contract version being reviewed (optional)
+    #[schema(example = "1.0.0")]
+    pub version: Option<String>,
+}
+
+/// Review response with full details
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, utoipa::ToSchema)]
+pub struct ReviewResponse {
+    pub id: i32,
+    pub contract_id: Uuid,
+    pub user_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[schema(example = 4.5, minimum = 1.0, maximum = 5.0)]
+    pub rating: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_text: Option<String>,
+    #[serde(default)]
+    pub helpful_count: i32,
+    #[serde(default)]
+    pub is_flagged: bool,
+    #[serde(default)]
+    pub status: ReviewStatus,
+    pub created_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+/// Aggregated rating statistics for a contract
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ContractRatingStats {
+    /// Average rating (0.0 if no reviews)
+    #[schema(example = 4.3)]
+    pub average_rating: f64,
+    /// Total number of approved reviews
+    #[schema(example = 42)]
+    pub total_reviews: i64,
+    /// Distribution of ratings (1-5 stars)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rating_distribution: Option<RatingDistribution>,
+}
+
+/// Distribution of ratings by star count
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RatingDistribution {
+    /// Number of 1-star reviews
+    #[schema(example = 2)]
+    pub stars_1: i64,
+    /// Number of 2-star reviews
+    #[schema(example = 3)]
+    pub stars_2: i64,
+    /// Number of 3-star reviews
+    #[schema(example = 5)]
+    pub stars_3: i64,
+    /// Number of 4-star reviews
+    #[schema(example = 12)]
+    pub stars_4: i64,
+    /// Number of 5-star reviews
+    #[schema(example = 20)]
+    pub stars_5: i64,
+}
+
+/// Request to vote on review helpfulness
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ReviewVoteRequest {
+    /// true = helpful, false = unhelpful
+    pub helpful: bool,
+}
+
+/// Request to flag a review for moderation
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct FlagReviewRequest {
+    /// Reason for flagging the review
+    #[schema(example = "Spam or misleading content")]
+    pub reason: String,
+}
+
+/// Request to approve or reject a review (moderation endpoint)
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ModerateReviewRequest {
+    /// Action to take: "approve" or "reject"
+    #[schema(example = "approve")]
+    pub action: String,
+}
+
+/// Query parameters for GET /contracts/:id/reviews
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::IntoParams)]
+pub struct GetReviewsQuery {
+    /// Sort order: most_helpful, most_recent, highest_rated, lowest_rated
+    #[serde(default = "default_review_sort")]
+    pub sort_by: ReviewSortBy,
+    /// Maximum number of reviews to return (default: 20, max: 100)
+    #[serde(default = "default_review_limit")]
+    pub limit: i64,
+    /// Offset for pagination
+    #[serde(default)]
+    pub offset: i64,
+}
+
+fn default_review_sort() -> ReviewSortBy {
+    ReviewSortBy::MostRecent
+}
+
+fn default_review_limit() -> i64 {
+    20
+}
+
+/// Response for review voting endpoint
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ReviewVoteResponse {
+    pub review_id: i32,
+    pub helpful_count: i32,
+    pub vote_recorded: bool,
+}

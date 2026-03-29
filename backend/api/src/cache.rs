@@ -62,7 +62,8 @@ pub struct CacheLayer {
     pub verification_cache: MokaCache<String, String>,
     pub generic_cache: MokaCache<String, String>,
     pub contract_access_cache: MokaCache<String, bool>,
-    config: CacheConfig,
+    pub config: CacheConfig,
+    pub redis_cm: Option<ConnectionManager>,
 }
 
 impl CacheLayer {
@@ -94,12 +95,39 @@ impl CacheLayer {
             .time_to_live(Duration::from_secs(60))
             .build();
 
+        // Initialize Redis connection manager if Redis is enabled
+        let redis_cm = if config.redis_enabled {
+            if let Some(redis_url) = &config.redis_url {
+                match redis::Client::open(redis_url.as_str()) {
+                    Ok(client) => match ConnectionManager::new(client).await {
+                        Ok(cm) => {
+                            tracing::info!("Redis connection manager initialized");
+                            Some(cm)
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to create Redis connection manager: {}", e);
+                            None
+                        }
+                    },
+                    Err(e) => {
+                        tracing::warn!("Failed to create Redis client: {}", e);
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         Self {
             abi_cache,
             verification_cache,
             generic_cache,
             contract_access_cache,
             config,
+            redis_cm,
         }
     }
 

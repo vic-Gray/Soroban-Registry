@@ -4,12 +4,12 @@ use crate::contract_events::ContractEventHub;
 use crate::health_monitor::HealthMonitorStatus;
 use crate::resource_tracking::ResourceManager;
 use prometheus::Registry;
+use shared::error::RegistryError;
 use sqlx::PgPool;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tokio::sync::broadcast;
-use shared::error::RegistryError;
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub enum RealtimeEvent {
@@ -48,6 +48,7 @@ pub struct AppState {
     pub auth_mgr: Arc<RwLock<AuthManager>>,
     pub resource_mgr: Arc<RwLock<ResourceManager>>,
     pub event_broadcaster: broadcast::Sender<RealtimeEvent>,
+    pub contract_events: Arc<ContractEventHub>,
 }
 
 impl AppState {
@@ -63,7 +64,8 @@ impl AppState {
         ));
         let resource_mgr = Arc::new(RwLock::new(ResourceManager::new()));
         let (event_broadcaster, _) = broadcast::channel(100);
-        Self {
+        let contract_events = Arc::new(ContractEventHub::from_env());
+        Ok(Self {
             db,
             started_at: Instant::now(),
             cache: Arc::new(CacheLayer::new(config).await),
@@ -74,6 +76,7 @@ impl AppState {
             auth_mgr,
             resource_mgr,
             event_broadcaster,
-        }
+            contract_events,
+        })
     }
 }

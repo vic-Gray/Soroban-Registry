@@ -1,3 +1,5 @@
+pub mod reviews;
+
 use crate::validation::extractors::ValidatedJson;
 use axum::{
     extract::{
@@ -4020,17 +4022,6 @@ pub async fn get_all_audit_logs(
     Ok(Json(logs))
 }
 
-#[utoipa::path(
-    get,
-    path = "/api/contracts/{id}/deployments/status",
-    params(
-        ("id" = String, Path, description = "Contract UUID")
-    ),
-    responses(
-        (status = 200, description = "Current deployment status", body = Object)
-    ),
-    tag = "Deployments"
-)]
 #[utoipa::path(
     get,
     path = "/api/contracts/{id}/deployments",

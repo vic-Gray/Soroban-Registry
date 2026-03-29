@@ -65,14 +65,13 @@ async fn create_test_contract(client: &reqwest::Client, base_url: &str) -> Uuid 
 }
 
 // Helper to get auth token (simplified - in real tests, you'd use the auth flow)
-async fn get_auth_token(
-    client: &reqwest::Client,
-    base_url: &str,
-    address: &str,
-) -> Option<String> {
+async fn get_auth_token(client: &reqwest::Client, base_url: &str, address: &str) -> Option<String> {
     // Get challenge
     let challenge_res = client
-        .get(format!("{}/api/auth/challenge?address={}", base_url, address))
+        .get(format!(
+            "{}/api/auth/challenge?address={}",
+            base_url, address
+        ))
         .send()
         .await
         .ok()?;
@@ -152,7 +151,10 @@ async fn test_submit_review_nonexistent_contract_rejected() {
     });
 
     let res = client
-        .post(format!("{}/api/contracts/{}/reviews", base, fake_contract_id))
+        .post(format!(
+            "{}/api/contracts/{}/reviews",
+            base, fake_contract_id
+        ))
         .json(&payload)
         .send()
         .await
@@ -197,23 +199,20 @@ async fn test_submit_review_success() {
     match res.status() {
         StatusCode::CREATED => {
             let review: Value = res.json().await.expect("failed to parse review response");
-            
+
             assert_eq!(
                 review.get("rating").and_then(Value::as_f64),
                 Some(4.5),
                 "review rating should match submitted value"
             );
-            
+
             assert_eq!(
                 review.get("status").and_then(Value::as_str),
                 Some("pending"),
                 "new reviews should have pending status"
             );
-            
-            assert!(
-                review.get("id").is_some(),
-                "review should have an ID"
-            );
+
+            assert!(review.get("id").is_some(), "review should have an ID");
         }
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
             // Expected when auth is required but not provided
@@ -252,10 +251,7 @@ async fn test_fetch_reviews_sorting() {
     );
 
     let reviews: Vec<Value> = res.json().await.expect("failed to parse reviews");
-    assert!(
-        reviews.is_array(),
-        "reviews response should be an array"
-    );
+    assert!(reviews.is_array(), "reviews response should be an array");
 
     // Test sorting by most_helpful
     let res = client
@@ -321,7 +317,10 @@ async fn test_rating_aggregation() {
 
     // Fetch rating stats
     let res = client
-        .get(format!("{}/api/contracts/{}/rating-stats", base, contract_id))
+        .get(format!(
+            "{}/api/contracts/{}/rating-stats",
+            base, contract_id
+        ))
         .send()
         .await
         .expect("failed to fetch rating stats");
@@ -345,7 +344,10 @@ async fn test_rating_aggregation() {
     );
 
     // For a new contract, stats should be zero/empty
-    let avg_rating = stats.get("average_rating").and_then(Value::as_f64).unwrap_or(0.0);
+    let avg_rating = stats
+        .get("average_rating")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
     let total_reviews = stats
         .get("total_reviews")
         .and_then(Value::as_i64)
@@ -355,10 +357,7 @@ async fn test_rating_aggregation() {
         avg_rating >= 0.0 && avg_rating <= 5.0,
         "average rating should be between 0 and 5"
     );
-    assert!(
-        total_reviews >= 0,
-        "total reviews should be non-negative"
-    );
+    assert!(total_reviews >= 0, "total reviews should be non-negative");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -407,7 +406,7 @@ async fn test_duplicate_review_prevention() {
                     StatusCode::BAD_REQUEST,
                     "duplicate reviews should be rejected"
                 );
-                
+
                 let error: Value = r2.json().await.unwrap_or_default();
                 assert!(
                     error
@@ -437,7 +436,7 @@ async fn test_helpful_voting() {
 
     // First, we need a review to vote on
     // In a full test environment, we would create one and get its ID
-    
+
     // Test voting endpoint structure (will fail without a valid review_id)
     let payload = json!({
         "helpful": true
@@ -565,28 +564,28 @@ async fn test_reviews_edge_cases() {
 
     // Test: Rating stats for contract with no reviews
     let res = client
-        .get(format!("{}/api/contracts/{}/rating-stats", base, contract_id))
+        .get(format!(
+            "{}/api/contracts/{}/rating-stats",
+            base, contract_id
+        ))
         .send()
         .await
         .expect("failed to fetch rating stats");
 
     assert_eq!(res.status(), StatusCode::OK);
     let stats: Value = res.json().await.expect("failed to parse stats");
-    
-    let avg_rating = stats.get("average_rating").and_then(Value::as_f64).unwrap_or(0.0);
+
+    let avg_rating = stats
+        .get("average_rating")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
     let total_reviews = stats
         .get("total_reviews")
         .and_then(Value::as_i64)
         .unwrap_or(0);
 
-    assert_eq!(
-        avg_rating, 0.0,
-        "average rating should be 0 for no reviews"
-    );
-    assert_eq!(
-        total_reviews, 0,
-        "total reviews should be 0 for no reviews"
-    );
+    assert_eq!(avg_rating, 0.0, "average rating should be 0 for no reviews");
+    assert_eq!(total_reviews, 0, "total reviews should be 0 for no reviews");
 
     // Test: Boundary ratings (1.0 and 5.0 should be valid)
     let payload_min = json!({

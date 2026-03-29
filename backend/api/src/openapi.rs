@@ -3,7 +3,6 @@ use crate::custom_metrics_handlers;
 use crate::deprecation_handlers;
 use crate::handlers;
 use crate::metrics_handler;
-use crate::review_handlers;
 use crate::similarity_handlers;
 use serde_json::Value;
 use shared::models::*;
@@ -61,12 +60,12 @@ use utoipa::OpenApi;
         deprecation_handlers::deprecate_contract,
         metrics_handler::metrics_endpoint,
         // Review system
-        review_handlers::get_reviews,
-        review_handlers::create_review,
-        review_handlers::vote_review,
-        review_handlers::flag_review,
-        review_handlers::moderate_review,
-        review_handlers::get_rating_stats,
+        handlers::reviews::get_reviews,
+        handlers::reviews::create_review,
+        handlers::reviews::vote_review,
+        handlers::reviews::flag_review,
+        handlers::reviews::moderate_review,
+        handlers::reviews::get_rating_stats,
     ),
     components(
         schemas(
@@ -105,7 +104,6 @@ use utoipa::OpenApi;
             ContractInteraction,
             ContractDependency,
             ImpactAnalysisResponse,
-            VerifyRequest,
             ContractAnalyticsResponse,
             DeploymentStats,
             InteractorStats,
@@ -125,7 +123,6 @@ use utoipa::OpenApi;
             CreateInteractionRequest,
             CreateInteractionBatchRequest,
             crate::auth_handlers::ChallengeResponse,
-            crate::auth_handlers::VerifyRequest as AuthVerifyRequest,
             crate::auth_handlers::VerifyResponse,
             breaking_changes::ChangeSeverity,
             breaking_changes::BreakingChange,

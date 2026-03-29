@@ -2416,7 +2416,9 @@ pub struct DashboardAnalyticsResponse {
 
 /// Review status for moderation workflow
 /// New reviews start as "pending" and must be approved before becoming visible
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema, PartialEq, Default)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema, PartialEq, Default,
+)]
 #[sqlx(type_name = "review_status", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum ReviewStatus {

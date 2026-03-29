@@ -45,7 +45,6 @@ mod release_notes_routes;
 pub mod request_tracing;
 mod resource_handlers;
 mod resource_tracking;
-mod review_handlers;
 mod routes;
 pub mod security_log;
 pub mod signing_handlers;

@@ -85,3 +85,30 @@ impl Loader<Uuid> for ContractVersionsLoader {
         Ok(map)
     }
 }
+
+pub struct CategoryLoader {
+    pub pool: PgPool,
+}
+
+impl Loader<Uuid> for CategoryLoader {
+    type Value = crate::category_handlers::CategoryRow;
+    type Error = Arc<sqlx::Error>;
+
+    async fn load(&self, keys: &[Uuid]) -> Result<HashMap<Uuid, Self::Value>, Self::Error> {
+        let categories: Vec<crate::category_handlers::CategoryRow> = sqlx::query_as(
+            r#"
+            SELECT
+                cc.*,
+                (SELECT COUNT(*) FROM contracts c WHERE c.category = cc.name)::BIGINT AS usage_count
+            FROM contract_categories cc
+            WHERE cc.id = ANY($1)
+            "#,
+        )
+        .bind(keys)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Arc::new)?;
+
+        Ok(categories.into_iter().map(|c| (c.id, c)).collect())
+    }
+}

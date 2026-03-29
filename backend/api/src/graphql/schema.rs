@@ -5,8 +5,8 @@ use uuid::Uuid;
 
 use crate::{
     graphql::{
-        loaders::{ContractVersionsLoader, DbLoader, OrganizationLoader, PublisherLoader},
-        types::{ContractType, PaginatedContracts, PublisherType},
+        loaders::{CategoryLoader, ContractVersionsLoader, DbLoader, OrganizationLoader, PublisherLoader},
+        types::{CategoryType, ContractType, OrganizationType, PaginatedContracts, PublisherType},
     },
     state::AppState,
 };
@@ -76,6 +76,43 @@ impl Query {
                 .await?;
         Ok(row.map(PublisherType::from))
     }
+
+    /// List all contract categories.
+    async fn categories(&self, ctx: &Context<'_>) -> Result<Vec<CategoryType>> {
+        let state = ctx.data::<AppState>()?;
+        let rows: Vec<crate::category_handlers::CategoryRow> = sqlx::query_as(
+            r#"
+            SELECT
+                cc.*,
+                (SELECT COUNT(*) FROM contracts c WHERE c.category = cc.name)::BIGINT AS usage_count
+            FROM contract_categories cc
+            ORDER BY cc.is_default DESC, cc.name ASC
+            "#,
+        )
+        .fetch_all(&state.db)
+        .await?;
+        Ok(rows.into_iter().map(CategoryType::from).collect())
+    }
+
+    /// List all publishers.
+    async fn publishers(&self, ctx: &Context<'_>) -> Result<Vec<PublisherType>> {
+        let state = ctx.data::<AppState>()?;
+        let rows: Vec<shared::models::Publisher> =
+            sqlx::query_as("SELECT * FROM publishers ORDER BY created_at DESC")
+                .fetch_all(&state.db)
+                .await?;
+        Ok(rows.into_iter().map(PublisherType::from).collect())
+    }
+
+    /// List organizations.
+    async fn organizations(&self, ctx: &Context<'_>) -> Result<Vec<OrganizationType>> {
+        let state = ctx.data::<AppState>()?;
+        let rows: Vec<shared::models::Organization> =
+            sqlx::query_as("SELECT * FROM organizations WHERE is_private = false ORDER BY created_at DESC")
+                .fetch_all(&state.db)
+                .await?;
+        Ok(rows.into_iter().map(OrganizationType::from).collect())
+    }
 }
 
 pub type RegistrySchema = Schema<Query, EmptyMutation, EmptySubscription>;
@@ -98,6 +135,10 @@ pub fn build_schema(state: AppState) -> RegistrySchema {
         ))
         .data(DataLoader::new(
             ContractVersionsLoader { pool: state.db.clone() },
+            tokio::spawn,
+        ))
+        .data(DataLoader::new(
+            CategoryLoader { pool: state.db.clone() },
             tokio::spawn,
         ))
         .finish()

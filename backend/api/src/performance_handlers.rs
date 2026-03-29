@@ -653,7 +653,7 @@ pub async fn get_contract_performance_overview(
 
 // ───────────────────── Helpers ─────────────────────
 
-async fn build_performance_summary(
+pub(crate) async fn build_performance_summary_internal(
     state: &AppState,
     contract_uuid: Uuid,
 ) -> ApiResult<ContractPerformanceSummaryResponse> {

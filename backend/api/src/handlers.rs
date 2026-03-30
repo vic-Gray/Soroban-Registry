@@ -1956,24 +1956,34 @@ pub async fn get_contract(
     Path(id): Path<String>,
     Query(query): Query<GetContractQuery>,
 ) -> ApiResult<Json<ContractGetResponse>> {
-    let contract_uuid = Uuid::parse_str(&id).map_err(|_| {
-        ApiError::bad_request(
-            "InvalidContractId",
-            format!("Invalid contract ID format: {}", id),
-        )
-    })?;
-
-    let mut contract: Contract = sqlx::query_as("SELECT * FROM contracts WHERE id = $1")
-        .bind(contract_uuid)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|err| match err {
-            sqlx::Error::RowNotFound => ApiError::not_found(
-                "ContractNotFound",
-                format!("No contract found with ID: {}", id),
-            ),
-            _ => db_internal_error("get contract by id", err),
-        })?;
+    let mut contract: Contract = if let Ok(contract_uuid) = Uuid::parse_str(&id) {
+        sqlx::query_as("SELECT * FROM contracts WHERE id = $1")
+            .bind(contract_uuid)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|err| match err {
+                sqlx::Error::RowNotFound => ApiError::not_found(
+                    "ContractNotFound",
+                    format!("No contract found with ID: {}", id),
+                ),
+                _ => db_internal_error("get contract by id", err),
+            })?
+    } else {
+        // Fetch by slug
+        let network = query.network.clone().unwrap_or(Network::Mainnet);
+        sqlx::query_as("SELECT * FROM contracts WHERE slug = $1 AND network = $2")
+            .bind(&id)
+            .bind(&network)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|err| match err {
+                sqlx::Error::RowNotFound => ApiError::not_found(
+                    "ContractNotFound",
+                    format!("No contract found with slug: {} on network: {}", id, network),
+                ),
+                _ => db_internal_error("get contract by slug", err),
+            })?
+    };
 
     // Visibility check
     if contract.visibility == shared::VisibilityType::Private {
@@ -3301,6 +3311,52 @@ async fn fetch_contract_network(
     })
 }
 
+async fn generate_unique_slug(
+    db: &sqlx::PgPool,
+    name: &str,
+    network: &Network,
+    requested_slug: Option<String>,
+) -> ApiResult<String> {
+    let base_slug = requested_slug
+        .map(|s| shared::slugify(&s))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| shared::slugify(name));
+
+    if base_slug.is_empty() {
+        return Err(ApiError::bad_request(
+            "InvalidSlug",
+            "Contract name must contain alphanumeric characters to generate a slug",
+        ));
+    }
+
+    let mut slug = base_slug.clone();
+    let mut counter = 1;
+
+    loop {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM contracts WHERE slug = $1 AND network = $2)",
+        )
+        .bind(&slug)
+        .bind(network)
+        .fetch_one(db)
+        .await
+        .map_err(|err| db_internal_error("check slug existence", err))?;
+
+        if !exists {
+            return Ok(slug);
+        }
+
+        slug = format!("{}-{}", base_slug, counter);
+        counter += 1;
+
+        if counter > 100 {
+            return Err(ApiError::internal(
+                "Failed to generate a unique slug after 100 attempts",
+            ));
+        }
+    }
+}
+
 #[utoipa::path(
     post,
     path = "/api/contracts",
@@ -3341,14 +3397,17 @@ pub async fn publish_contract(
     );
     let network_configs = serde_json::Value::Object(config_map);
 
+    let slug = generate_unique_slug(&state.db, &req.name, &req.network, req.slug.clone()).await?;
+
     let contract: Contract = sqlx::query_as(
-        "INSERT INTO contracts (contract_id, wasm_hash, name, description, publisher_id, network, category, tags, logical_id, network_configs)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        "INSERT INTO contracts (contract_id, wasm_hash, name, slug, description, publisher_id, network, category, tags, logical_id, network_configs)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING *"
     )
     .bind(&req.contract_id)
     .bind(&wasm_hash)
     .bind(&req.name)
+    .bind(&slug)
     .bind(&req.description)
     .bind(publisher.id)
     .bind(&req.network)
@@ -3407,6 +3466,7 @@ pub async fn publish_contract(
     let creation_changes = json!({
         "contract_id": { "before": Value::Null, "after": contract.contract_id },
         "name": { "before": Value::Null, "after": contract.name },
+        "slug": { "before": Value::Null, "after": contract.slug },
         "description": { "before": Value::Null, "after": contract.description },
         "publisher_id": { "before": Value::Null, "after": contract.publisher_id },
         "network": { "before": Value::Null, "after": contract.network.to_string() },

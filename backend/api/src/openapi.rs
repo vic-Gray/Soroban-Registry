@@ -2,6 +2,7 @@ use crate::breaking_changes;
 use crate::custom_metrics_handlers;
 use crate::deprecation_handlers;
 use crate::handlers;
+use crate::interoperability_handlers;
 use crate::metrics_handler;
 use crate::similarity_handlers;
 use serde_json::Value;
@@ -58,6 +59,7 @@ use utoipa::OpenApi;
         custom_metrics_handlers::record_metrics_batch,
         deprecation_handlers::get_deprecation_info,
         deprecation_handlers::deprecate_contract,
+        interoperability_handlers::get_contract_interoperability,
         metrics_handler::metrics_endpoint,
     ),
     components(
@@ -76,6 +78,13 @@ use utoipa::OpenApi;
             GraphNode,
             GraphEdge,
             GraphResponse,
+            ProtocolComplianceStatus,
+            InteroperabilityCapabilityKind,
+            InteroperabilityProtocolMatch,
+            InteroperabilityCapability,
+            InteroperabilitySuggestion,
+            InteroperabilitySummary,
+            ContractInteroperabilityResponse,
             PublishRequest,
             MigrationScript,
             DeploymentEnvironment,

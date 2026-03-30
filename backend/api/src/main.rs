@@ -12,6 +12,8 @@ mod canary_handlers;
 mod compatibility_testing_handlers;
 mod contract_events;
 mod db_monitoring;
+mod interoperability;
+mod interoperability_handlers;
 
 mod activity_feed_handlers;
 mod activity_feed_routes;

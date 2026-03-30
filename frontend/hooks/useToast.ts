@@ -6,19 +6,21 @@ import { ToastContext, ToastContextValue } from '@/providers/ToastProvider';
 export function useToast(): ToastContextValue {
   const context = useContext(ToastContext);
 
-  if (context) {
-    return context;
+  if (!context) {
+    // During SSR prerendering there is no ToastProvider in scope.
+    // Return a no-op fallback — all real call-sites are 'use client'
+    // components so this path is never hit at runtime.
+    const noop = () => {};
+    return {
+      toasts: [],
+      showToast: noop,
+      dismissToast: noop,
+      showError: noop,
+      showSuccess: noop,
+      showWarning: noop,
+      showInfo: noop,
+    };
   }
 
-  // Some prerendered routes can be evaluated before client-only providers mount.
-  // In that case we expose a no-op toast API rather than crashing the build.
-  return {
-    toasts: [],
-    showToast: () => undefined,
-    dismissToast: () => undefined,
-    showError: () => undefined,
-    showSuccess: () => undefined,
-    showWarning: () => undefined,
-    showInfo: () => undefined,
-  };
+  return context;
 }

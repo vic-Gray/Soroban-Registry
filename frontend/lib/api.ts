@@ -807,12 +807,24 @@ export const api = {
     );
   },
 
+
   async getContractDependencies(id: string): Promise<DependencyTreeNode[]> {
     return handleApiCall<DependencyTreeNode[]>(
       () => fetch(`${API_URL}/api/contracts/${id}/dependencies`),
       `/api/contracts/${id}/dependencies`
     );
   },
+
+  async getContractLocalGraph(id: string, depth?: number): Promise<GraphResponse> {
+    const search = new URLSearchParams();
+    if (depth != null) search.set("depth", String(depth));
+    const qs = search.toString();
+    return handleApiCall<GraphResponse>(
+      () => fetch(`${API_URL}/api/contracts/${id}/graph${qs ? `?${qs}` : ""}`),
+      `/api/contracts/${id}/graph`
+    );
+  },
+
 
   async getContractInteractions(
     id: string,

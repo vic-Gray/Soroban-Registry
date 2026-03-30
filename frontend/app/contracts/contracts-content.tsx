@@ -3,47 +3,30 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, ContractSearchParams, Contract } from '@/lib/api';
-import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import ContractCard from '@/components/ContractCard';
 import ContractCardSkeleton from '@/components/ContractCardSkeleton';
 import { ActiveFilters } from '@/components/contracts/ActiveFilters';
 import { FilterPanel } from '@/components/contracts/FilterPanel';
 import { ResultsCount } from '@/components/contracts/ResultsCount';
+import { SearchBar } from '@/components/contracts/SearchBar';
 import { SortDropdown, SortBy } from '@/components/contracts/SortDropdown';
 import TagAutocomplete from '@/components/tags/TagAutocomplete';
-import {
-  Filter,
-  Package,
-  SlidersHorizontal,
-  X,
-  Search,
-  Sparkles,
-  CheckCircle,
-  Users,
-} from 'lucide-react';
+import { Filter, Package, Search, SlidersHorizontal, X, Sparkles, CheckCircle, Users } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAnalytics } from '@/hooks/useAnalytics';
+import QueryBuilder from '@/components/contracts/QueryBuilder';
+import FavoriteSearches from '@/components/contracts/FavoriteSearches';
 
 const DEFAULT_PAGE_SIZE = 12;
-const ALL_NETWORK_FILTERS = ['mainnet', 'testnet', 'futurenet'] as const;
 const CATEGORY_OPTIONS = [
-  { value: 'defi', label: 'DeFi' },
-  { value: 'nft', label: 'NFT' },
-  { value: 'dao', label: 'DAO' },
-  { value: 'governance', label: 'Governance' },
-  { value: 'dex', label: 'DEX' },
-  { value: 'lending', label: 'Lending' },
-  { value: 'bridge', label: 'Bridge' },
-  { value: 'oracle', label: 'Oracle' },
-  { value: 'token', label: 'Token' },
-  { value: 'infrastructure', label: 'Infrastructure' },
-  { value: 'payment', label: 'Payment' },
-  { value: 'identity', label: 'Identity' },
-  { value: 'gaming', label: 'Gaming' },
-  { value: 'social', label: 'Social' },
-  { value: 'wallet', label: 'Wallet' },
-  { value: 'tooling', label: 'Tooling' },
-  { value: 'other', label: 'Other' },
+  'DeFi',
+  'NFT',
+  'Governance',
+  'Infrastructure',
+  'Payment',
+  'Identity',
+  'Gaming',
+  'Social',
 ];
 const LANGUAGE_OPTIONS = [
   'Rust',
@@ -52,6 +35,8 @@ const LANGUAGE_OPTIONS = [
   'AssemblyScript',
   'Move',
 ];
+
+const ALL_NETWORK_FILTERS = ['mainnet', 'testnet', 'futurenet'] as const;
 
 function parseCsvOrMulti(values: string[]) {
   return values
@@ -123,19 +108,6 @@ function getPaginationRange(
   return range;
 }
 
-function toCategoryLabel(value: string) {
-  const preset = CATEGORY_OPTIONS.find((option) => option.value === value.toLowerCase());
-  if (preset) return preset.label;
-
-  return value
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((part) =>
-      part.length <= 3 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1),
-    )
-    .join(' ');
-}
-
 type ContractsUiFilters = {
   query: string;
   categories: string[];
@@ -150,11 +122,19 @@ type ContractsUiFilters = {
   page_size: number;
 };
 
+type ContractsResponse = Awaited<ReturnType<typeof api.getContracts>>;
+
+const EMPTY_CONTRACTS_RESPONSE: ContractsResponse = {
+  items: [],
+  total: 0,
+  page: 1,
+  page_size: DEFAULT_PAGE_SIZE,
+  total_pages: 1,
+};
+
 function getInitialFilters(searchParams: URLSearchParams): ContractsUiFilters {
   const query = searchParams.get('query') || searchParams.get('q') || '';
-  const categories = parseCsvOrMulti(searchParams.getAll('category')).map((value) =>
-    value.toLowerCase(),
-  );
+  const categories = parseCsvOrMulti(searchParams.getAll('category'));
   const languages = parseCsvOrMulti(searchParams.getAll('language'));
   const tags = parseCsvOrMulti(searchParams.getAll('tag'));
   const networks = parseCsvOrMulti(searchParams.getAll('network')).filter(
@@ -166,16 +146,7 @@ function getInitialFilters(searchParams: URLSearchParams): ContractsUiFilters {
   const sortOrder = searchParams.get('sort_order') as 'asc' | 'desc';
   const parsedPage = Number(searchParams.get('page') || '1');
 
-  const validSortBys: SortBy[] = [
-    'name',
-    'created_at',
-    'updated_at',
-    'popularity',
-    'deployments',
-    'interactions',
-    'relevance',
-    'downloads',
-  ];
+  const validSortBys: SortBy[] = ['name', 'created_at', 'updated_at', 'popularity', 'deployments', 'interactions', 'relevance', 'downloads'];
 
   return {
     query,
@@ -185,7 +156,7 @@ function getInitialFilters(searchParams: URLSearchParams): ContractsUiFilters {
     author: searchParams.get('author') || '',
     networks,
     verified_only: searchParams.get('verified_only') === 'true',
-    sort_by: validSortBys.includes(sortBy) ? sortBy : query ? 'relevance' : 'created_at',
+    sort_by: validSortBys.includes(sortBy) ? sortBy : (query ? 'relevance' : 'created_at'),
     sort_order: sortOrder === 'asc' || sortOrder === 'desc' ? sortOrder : 'desc',
     page: Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1,
     page_size: DEFAULT_PAGE_SIZE,
@@ -205,116 +176,137 @@ export function ContractsContent() {
     getInitialFilters(new URLSearchParams(searchParams?.toString() ?? '')),
   );
 
-  const debouncedQuery = useDebouncedValue(filters.query, 300);
+  const { query, categories, languages, tags, networks, author, verified_only, sort_by, sort_order, page, page_size } = filters;
 
   useEffect(() => {
+    // Skip URL sync if no filters are active
+    const isEmptyFilters = !query && categories.length === 0 && languages.length === 0 && 
+                           tags.length === 0 && networks.length === 0 && !author && !verified_only;
+    if (isEmptyFilters) return;
+
     const params = new URLSearchParams();
-    if (debouncedQuery) params.set('query', debouncedQuery);
-    filters.categories.forEach((category) => params.append('category', category));
-    filters.languages.forEach((language) => params.append('language', language));
-    filters.tags.forEach((tag) => params.append('tag', tag));
-    filters.networks.forEach((network) => params.append('network', network));
-    if (filters.author) params.set('author', filters.author);
-    if (filters.verified_only) params.set('verified_only', 'true');
-    if (filters.sort_by) params.set('sort_by', filters.sort_by);
-    if (filters.sort_order) params.set('sort_order', filters.sort_order);
-    if (filters.page > 1) params.set('page', String(filters.page));
-    params.set('page_size', String(filters.page_size));
+    if (query) params.set('query', query);
+    categories.forEach((category) => params.append('category', category));
+    languages.forEach((language) => params.append('language', language));
+    tags.forEach((tag) => params.append('tag', tag));
+    networks.forEach((network) => params.append('network', network));
+    if (author) params.set('author', author);
+    if (verified_only) params.set('verified_only', 'true');
+    if (sort_by) params.set('sort_by', sort_by);
+    if (sort_order) params.set('sort_order', sort_order);
+    if (page > 1) params.set('page', String(page));
+    params.set('page_size', String(page_size));
 
     const next = params.toString();
     router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
-  }, [debouncedQuery, filters, pathname, router]);
+  }, [query, categories, languages, tags, networks, author, verified_only, sort_by, sort_order, page, page_size, pathname, router]);
 
-  const apiParams = useMemo<ContractSearchParams>(
-    () => ({
-      query: debouncedQuery || undefined,
-      categories: filters.categories.length > 0 ? filters.categories : undefined,
-      languages: filters.languages.length > 0 ? filters.languages : undefined,
-      tags: filters.tags.length > 0 ? filters.tags : undefined,
-      author: filters.author || undefined,
-      networks: filters.networks.length > 0 ? filters.networks : undefined,
-      verified_only: filters.verified_only,
-      sort_by: filters.sort_by,
-      sort_order: filters.sort_order,
-      page: filters.page,
-      page_size: filters.page_size,
-    }),
-    [debouncedQuery, filters],
-  );
+  // Build API parameters from filters  
+  const apiParams = {
+    keyword: query,
+    categories: categories.length > 0 ? categories : undefined,
+    languages: languages.length > 0 ? languages : undefined,
+    networks: networks.length > 0 ? (networks as Array<'mainnet'|'testnet'|'futurenet'>) : undefined,
+    author: author || undefined,
+    verified_only: verified_only || undefined,
+    sort_by: sort_by as any,
+    page,
+    page_size,
+  };
 
-  const { data, isLoading, isFetching } = useQuery({
+  const { data: allContracts, isLoading, isFetching } = useQuery<Awaited<ReturnType<typeof api.getContracts>>>({
     queryKey: ['contracts', apiParams],
     queryFn: () => api.getContracts(apiParams),
-    placeholderData: (previousData) => previousData,
+    placeholderData: (previousData) => previousData ?? EMPTY_CONTRACTS_RESPONSE,
   });
 
-  const categoryCountParams = useMemo<ContractSearchParams>(
-    () => ({
-      query: debouncedQuery || undefined,
-      languages: filters.languages.length > 0 ? filters.languages : undefined,
-      tags: filters.tags.length > 0 ? filters.tags : undefined,
-      author: filters.author || undefined,
-      networks: filters.networks.length > 0 ? filters.networks : undefined,
-      verified_only: filters.verified_only,
-      sort_by: 'created_at',
-      sort_order: 'desc',
-      page: 1,
-      page_size: 1000,
-    }),
-    [
-      debouncedQuery,
-      filters.author,
-      filters.languages,
-      filters.networks,
-      filters.tags,
-      filters.verified_only,
-    ],
-  );
+  const effectiveData = useMemo(() => {
+    const all = allContracts?.items ?? [];
 
-  const { data: categoryCountsSource } = useQuery({
-    queryKey: ['contracts-category-counts', categoryCountParams],
-    queryFn: () => api.getContracts(categoryCountParams),
-    placeholderData: (previousData) => previousData,
-  });
+    let filtered = all;
+
+    // Filter by query if present
+    if (filters.query) {
+      const q = filters.query.toLowerCase();
+      filtered = filtered.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          (c.description && c.description.toLowerCase().includes(q)) ||
+          c.tags.some((t) => t.toLowerCase().includes(q)),
+      );
+    }
+
+    if (filters.networks.length > 0) {
+      filtered = filtered.filter((c) => filters.networks.includes(c.network as never));
+    }
+
+    if (filters.categories.length > 0) {
+      filtered = filtered.filter((c) => c.category && filters.categories.includes(c.category));
+    }
+
+    if (filters.languages.length > 0) {
+      const langs = filters.languages.map((l) => l.toLowerCase());
+      filtered = filtered.filter((c) =>
+        c.tags.some((t) => langs.includes(t.toLowerCase())),
+      );
+    }
+
+    if (filters.tags.length > 0) {
+      filtered = filtered.filter((c) =>
+        filters.tags.every((tag) => c.tags.includes(tag)),
+      );
+    }
+
+    if (filters.author) {
+      const author = filters.author.toLowerCase();
+      filtered = filtered.filter((c) =>
+        c.publisher_id.toLowerCase().includes(author),
+      );
+    }
+
+    if (filters.verified_only) {
+      filtered = filtered.filter((c) => c.is_verified);
+    }
+
+    // Sort
+    const order = filters.sort_order === 'asc' ? 1 : -1;
+    filtered = [...filtered].sort((a, b) => {
+      switch (filters.sort_by) {
+        case 'name':
+          return order * a.name.localeCompare(b.name);
+        case 'popularity':
+          return order * ((a.popularity_score ?? 0) - (b.popularity_score ?? 0));
+        case 'updated_at':
+          return order * (new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime());
+        default:
+          return order * (new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      }
+    });
+
+    // Paginate
+    const total = filtered.length;
+    const total_pages = Math.max(1, Math.ceil(total / filters.page_size));
+    const start = (filters.page - 1) * filters.page_size;
+    const items = filtered.slice(start, start + filters.page_size);
+
+    return { items, total, page: filters.page, page_size: filters.page_size, total_pages };
+  }, [allContracts, filters]);
 
   const { data: stats } = useQuery({
     queryKey: ['stats'],
     queryFn: () => api.getStats(),
   });
 
+  // Used to determine if results are empty for UI
   const paginationRange = useMemo(
-    () => (data ? getPaginationRange(filters.page, data.total_pages) : []),
-    [filters.page, data],
+    () => (effectiveData ? getPaginationRange(filters.page, effectiveData.total_pages) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filters.page],
   );
-
-  const categoryOptions = useMemo(() => {
-    const counts = new Map<string, number>();
-
-    (categoryCountsSource?.items ?? []).forEach((contract) => {
-      const category = contract.category?.trim().toLowerCase();
-      if (!category) return;
-      counts.set(category, (counts.get(category) ?? 0) + 1);
-    });
-
-    const discoveredValues = Array.from(counts.keys());
-    const selectedValues = filters.categories.map((category) => category.toLowerCase());
-    const knownValues = CATEGORY_OPTIONS.map((option) => option.value);
-
-    return Array.from(new Set([...knownValues, ...discoveredValues, ...selectedValues]))
-      .map((value) => ({
-        value,
-        label: toCategoryLabel(value),
-        count: counts.get(value) ?? 0,
-      }))
-      .sort((left, right) => {
-        if (right.count !== left.count) return right.count - left.count;
-        return left.label.localeCompare(right.label);
-      });
-  }, [categoryCountsSource?.items, filters.categories]);
 
   useEffect(() => {
     const payload = {
-      keyword: debouncedQuery || '',
+      keyword: filters.query || '',
       categories: filters.categories,
       languages: filters.languages,
       networks: filters.networks,
@@ -342,7 +334,7 @@ export function ContractsContent() {
     lastSearchSignatureRef.current = signature;
 
     logEvent('search_performed', payload);
-  }, [debouncedQuery, filters, logEvent]);
+  }, [filters.query, filters, logEvent]);
 
   const clearAllFilters = () =>
     setFilters((current) => ({
@@ -362,10 +354,10 @@ export function ContractsContent() {
   const activeFilterChips = useMemo(() => {
     const chips: Array<{ id: string; label: string; onRemove: () => void }> = [];
 
-    if (debouncedQuery) {
+    if (filters.query) {
       chips.push({
         id: 'query',
-        label: `Search: ${debouncedQuery}`,
+        label: `Search: ${filters.query}`,
         onRemove: () => setFilters((current) => ({ ...current, query: '', page: 1 })),
       });
     }
@@ -373,7 +365,7 @@ export function ContractsContent() {
     filters.categories.forEach((category) =>
       chips.push({
         id: `category:${category}`,
-        label: `Category: ${toCategoryLabel(category)}`,
+        label: `Category: ${category}`,
         onRemove: () =>
           setFilters((current) => ({
             ...current,
@@ -443,29 +435,21 @@ export function ContractsContent() {
       chips.push({
         id: 'sort',
         label: `Sort: ${filters.sort_by.replace('_', ' ')} (${filters.sort_order})`,
-        onRemove: () =>
-          setFilters((current) => ({ ...current, sort_by: 'created_at', sort_order: 'desc' })),
+        onRemove: () => setFilters((current) => ({ ...current, sort_by: 'created_at', sort_order: 'desc' })),
       });
     }
 
     return chips;
-  }, [debouncedQuery, filters]);
+  }, [filters]);
 
   const filterPanel = (
     <FilterPanel
-      categories={categoryOptions}
+      categories={CATEGORY_OPTIONS}
       selectedCategories={filters.categories}
       onToggleCategory={(value) =>
         setFilters((current) => ({
           ...current,
-          categories: toggleOne(current.categories, value.toLowerCase()),
-          page: 1,
-        }))
-      }
-      onClearCategories={() =>
-        setFilters((current) => ({
-          ...current,
-          categories: [],
+          categories: toggleOne(current.categories, value),
           page: 1,
         }))
       }
@@ -500,6 +484,7 @@ export function ContractsContent() {
 
   return (
     <>
+      {/* Hero header with grid pattern */}
       <section className="relative overflow-hidden border-b border-border">
         <div className="absolute inset-0 bg-grid-pattern opacity-5 text-primary" />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 relative">
@@ -517,51 +502,49 @@ export function ContractsContent() {
               Search, filter, and find the perfect building blocks for your project.
             </p>
 
+            {/* Inline search */}
             <div className="max-w-2xl mx-auto mb-10">
-              <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                <input
-                  type="text"
-                  value={filters.query}
-                  onChange={(e) =>
-                    setFilters((current) => ({ ...current, query: e.target.value, page: 1 }))
-                  }
-                  placeholder="Search contracts by name, category, or tag..."
-                  aria-label="Search contracts"
-                  aria-keyshortcuts="/"
-                  className="w-full pl-12 pr-24 py-4 rounded-xl border border-border bg-background text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-lg"
-                />
-                {filters.query && (
+                <div className="relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={filters.query}
+                    onChange={(e) => setFilters((current) => ({ ...current, query: e.target.value, page: 1 }))}
+                    placeholder="Search contracts by name, category, or tag..."
+                    aria-label="Search contracts"
+                    aria-keyshortcuts="/"
+                    className="w-full pl-12 pr-24 py-4 rounded-xl border border-border bg-background text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary shadow-lg"
+                  />
+                  {filters.query && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        logEvent('search_performed', {
+                          keyword: '',
+                          action: 'clear_query',
+                        });
+                        setFilters((current) => ({ ...current, query: '', page: 1 }));
+                      }}
+                      className="absolute right-20 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label="Clear search"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => {
-                      logEvent('search_performed', {
-                        keyword: '',
-                        action: 'clear_query',
-                      });
-                      setFilters((current) => ({ ...current, query: '', page: 1 }));
-                    }}
-                    className="absolute right-20 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:text-foreground transition-colors"
-                    aria-label="Clear search"
+                    onClick={() => setMobileFiltersOpen(true)}
+                    className="md:hidden absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity font-medium text-sm"
                   >
-                    <X className="w-4 h-4" />
+                    Filters
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setMobileFiltersOpen(true)}
-                  className="md:hidden absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity font-medium text-sm"
-                >
-                  Filters
-                </button>
-                <div className="hidden md:flex absolute right-2 top-1/2 -translate-y-1/2 items-center gap-2">
-                  <kbd className="px-2 py-1 rounded bg-muted text-muted-foreground text-xs font-mono border border-border">
-                    /
-                  </kbd>
+                  <div className="hidden md:flex absolute right-2 top-1/2 -translate-y-1/2 items-center gap-2">
+                    <kbd className="px-2 py-1 rounded bg-muted text-muted-foreground text-xs font-mono border border-border">/</kbd>
+                  </div>
                 </div>
-              </div>
             </div>
 
+            {/* Stats row */}
             <div className="grid grid-cols-3 gap-4 max-w-lg mx-auto">
               <div className="bg-background rounded-xl p-4 border border-border shadow-sm">
                 <div className="flex items-center justify-center gap-1.5 mb-1">
@@ -589,10 +572,15 @@ export function ContractsContent() {
         </div>
       </section>
 
+      {/* Main content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Toolbar */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-3">
-            <ResultsCount visibleCount={data?.items.length ?? 0} totalCount={data?.total ?? 0} />
+            <ResultsCount
+              visibleCount={effectiveData?.items.length ?? 0}
+              totalCount={effectiveData?.total ?? 0}
+            />
             {isFetching && !isLoading && (
               <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                 <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -611,13 +599,7 @@ export function ContractsContent() {
             />
             <select
               value={filters.sort_order}
-              onChange={(e) =>
-                setFilters((prev) => ({
-                  ...prev,
-                  sort_order: e.target.value as 'asc' | 'desc',
-                  page: 1,
-                }))
-              }
+              onChange={(e) => setFilters(prev => ({ ...prev, sort_order: e.target.value as 'asc' | 'desc', page: 1 }))}
               className="px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
             >
               <option value="desc">Descending</option>
@@ -637,34 +619,38 @@ export function ContractsContent() {
         <ActiveFilters chips={activeFilterChips} onClearAll={clearAllFilters} />
 
         <div className="flex gap-8 mt-6">
-          <aside className="hidden md:block w-64 flex-shrink-0">
+          {/* Sidebar filters (desktop) */}
+          <aside className="hidden md:flex flex-col w-72 flex-shrink-0 gap-6">
             <div className="gradient-border-card p-5 sticky top-20">
               <div className="flex items-center gap-2 mb-5">
                 <Filter className="w-4 h-4 text-primary" />
                 <h3 className="text-sm font-semibold text-foreground">Filters</h3>
               </div>
-              {filterPanel}
-
-              <div className="mt-5 pt-4 border-t border-border">
-                <div className="w-full">
-                  <TagAutocomplete
-                    onSelect={(tag) =>
-                      setFilters((current) => {
-                        if (current.tags.includes(tag.name)) return current;
-                        return {
-                          ...current,
-                          tags: [...current.tags, tag.name],
-                          page: 1,
-                        };
-                      })
-                    }
-                    placeholder="Filter by tag..."
-                  />
+              
+              <>
+                {filterPanel}
+                <div className="mt-5 pt-4 border-t border-border">
+                  <div className="w-full">
+                    <TagAutocomplete
+                      onSelect={(tag) =>
+                        setFilters((current) => {
+                          if (current.tags.includes(tag.name)) return current;
+                          return {
+                            ...current,
+                            tags: [...current.tags, tag.name],
+                            page: 1,
+                          };
+                        })
+                      }
+                      placeholder="Filter by tag..."
+                    />
+                  </div>
                 </div>
-              </div>
+              </>
             </div>
           </aside>
 
+          {/* Results grid */}
           <div className="flex-1 min-w-0">
             {isLoading ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 mb-8">
@@ -672,23 +658,20 @@ export function ContractsContent() {
                   <ContractCardSkeleton key={i} />
                 ))}
               </div>
-            ) : data && data.items.length > 0 ? (
+            ) : effectiveData && effectiveData.items.length > 0 ? (
               <>
                 <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 mb-8">
-                  {data.items.map((contract: Contract) => (
+                  {effectiveData.items.map((contract: Contract) => (
                     <ContractCard key={contract.id} contract={contract} />
                   ))}
                 </div>
 
-                {data.total_pages > 1 && (
+                {effectiveData.total_pages > 1 && (
                   <div className="flex flex-wrap items-center justify-center gap-2 py-4">
                     <button
                       type="button"
                       onClick={() =>
-                        setFilters((current) => ({
-                          ...current,
-                          page: Math.max(1, current.page - 1),
-                        }))
+                        setFilters((current) => ({ ...current, page: Math.max(1, current.page - 1) }))
                       }
                       disabled={filters.page <= 1}
                       className="px-4 py-2 rounded-lg border border-border text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors text-sm font-medium"
@@ -718,7 +701,7 @@ export function ContractsContent() {
                           onClick={() =>
                             setFilters((current) => ({
                               ...current,
-                              page: Math.min(data.total_pages, Math.max(1, item)),
+                              page: Math.min(effectiveData.total_pages, Math.max(1, item)),
                             }))
                           }
                           aria-current={isActive ? 'page' : undefined}
@@ -738,7 +721,7 @@ export function ContractsContent() {
                       onClick={() =>
                         setFilters((current) => ({ ...current, page: current.page + 1 }))
                       }
-                      disabled={filters.page >= data.total_pages}
+                      disabled={filters.page >= effectiveData.total_pages}
                       className="px-4 py-2 rounded-lg border border-border text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors text-sm font-medium"
                     >
                       Next
@@ -753,8 +736,7 @@ export function ContractsContent() {
                 </div>
                 <h3 className="text-xl font-semibold mb-2">No contracts found</h3>
                 <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-                  No contracts match the current filters. Try adjusting your search or clearing
-                  filters.
+                  No contracts match the current filters. Try adjusting your search or clearing filters.
                 </p>
                 <button
                   type="button"
@@ -775,6 +757,7 @@ export function ContractsContent() {
         </div>
       </div>
 
+      {/* Mobile Filters Drawer */}
       {mobileFiltersOpen && (
         <div className="md:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm">
           <div className="absolute right-0 top-0 h-full w-[88%] max-w-sm bg-background border-l border-border p-5 shadow-2xl animate-in slide-in-from-right duration-300 overflow-y-auto">

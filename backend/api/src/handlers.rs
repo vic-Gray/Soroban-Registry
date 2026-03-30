@@ -1209,6 +1209,11 @@ pub async fn list_contracts(
         qb.push(" AND c.is_verified = true");
     }
 
+    if let Some(status) = &params.verification_status {
+        qb.push(" AND c.verification_status = ");
+        qb.push_bind(status);
+    }
+
     if let Some(category) = &params.category {
         qb.push(" AND c.category = ");
         qb.push_bind(category);
@@ -1274,6 +1279,10 @@ pub async fn list_contracts(
     }
     if params.verified_only.unwrap_or(false) {
         count_qb.push(" AND c.is_verified = true");
+    }
+    if let Some(status) = &params.verification_status {
+        count_qb.push(" AND c.verification_status = ");
+        count_qb.push_bind(status);
     }
     if let Some(category) = &params.category {
         count_qb.push(" AND c.category = ");
@@ -1947,24 +1956,34 @@ pub async fn get_contract(
     Path(id): Path<String>,
     Query(query): Query<GetContractQuery>,
 ) -> ApiResult<Json<ContractGetResponse>> {
-    let contract_uuid = Uuid::parse_str(&id).map_err(|_| {
-        ApiError::bad_request(
-            "InvalidContractId",
-            format!("Invalid contract ID format: {}", id),
-        )
-    })?;
-
-    let mut contract: Contract = sqlx::query_as("SELECT * FROM contracts WHERE id = $1")
-        .bind(contract_uuid)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|err| match err {
-            sqlx::Error::RowNotFound => ApiError::not_found(
-                "ContractNotFound",
-                format!("No contract found with ID: {}", id),
-            ),
-            _ => db_internal_error("get contract by id", err),
-        })?;
+    let mut contract: Contract = if let Ok(contract_uuid) = Uuid::parse_str(&id) {
+        sqlx::query_as("SELECT * FROM contracts WHERE id = $1")
+            .bind(contract_uuid)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|err| match err {
+                sqlx::Error::RowNotFound => ApiError::not_found(
+                    "ContractNotFound",
+                    format!("No contract found with ID: {}", id),
+                ),
+                _ => db_internal_error("get contract by id", err),
+            })?
+    } else {
+        // Fetch by slug
+        let network = query.network.clone().unwrap_or(Network::Mainnet);
+        sqlx::query_as("SELECT * FROM contracts WHERE slug = $1 AND network = $2")
+            .bind(&id)
+            .bind(&network)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|err| match err {
+                sqlx::Error::RowNotFound => ApiError::not_found(
+                    "ContractNotFound",
+                    format!("No contract found with slug: {} on network: {}", id, network),
+                ),
+                _ => db_internal_error("get contract by slug", err),
+            })?
+    };
 
     // Visibility check
     if contract.visibility == shared::VisibilityType::Private {
@@ -3292,6 +3311,52 @@ async fn fetch_contract_network(
     })
 }
 
+async fn generate_unique_slug(
+    db: &sqlx::PgPool,
+    name: &str,
+    network: &Network,
+    requested_slug: Option<String>,
+) -> ApiResult<String> {
+    let base_slug = requested_slug
+        .map(|s| shared::slugify(&s))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| shared::slugify(name));
+
+    if base_slug.is_empty() {
+        return Err(ApiError::bad_request(
+            "InvalidSlug",
+            "Contract name must contain alphanumeric characters to generate a slug",
+        ));
+    }
+
+    let mut slug = base_slug.clone();
+    let mut counter = 1;
+
+    loop {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM contracts WHERE slug = $1 AND network = $2)",
+        )
+        .bind(&slug)
+        .bind(network)
+        .fetch_one(db)
+        .await
+        .map_err(|err| db_internal_error("check slug existence", err))?;
+
+        if !exists {
+            return Ok(slug);
+        }
+
+        slug = format!("{}-{}", base_slug, counter);
+        counter += 1;
+
+        if counter > 100 {
+            return Err(ApiError::internal(
+                "Failed to generate a unique slug after 100 attempts",
+            ));
+        }
+    }
+}
+
 #[utoipa::path(
     post,
     path = "/api/contracts",
@@ -3332,14 +3397,17 @@ pub async fn publish_contract(
     );
     let network_configs = serde_json::Value::Object(config_map);
 
+    let slug = generate_unique_slug(&state.db, &req.name, &req.network, req.slug.clone()).await?;
+
     let contract: Contract = sqlx::query_as(
-        "INSERT INTO contracts (contract_id, wasm_hash, name, description, publisher_id, network, category, tags, logical_id, network_configs)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        "INSERT INTO contracts (contract_id, wasm_hash, name, slug, description, publisher_id, network, category, tags, logical_id, network_configs)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING *"
     )
     .bind(&req.contract_id)
     .bind(&wasm_hash)
     .bind(&req.name)
+    .bind(&slug)
     .bind(&req.description)
     .bind(publisher.id)
     .bind(&req.network)
@@ -3398,6 +3466,7 @@ pub async fn publish_contract(
     let creation_changes = json!({
         "contract_id": { "before": Value::Null, "after": contract.contract_id },
         "name": { "before": Value::Null, "after": contract.name },
+        "slug": { "before": Value::Null, "after": contract.slug },
         "description": { "before": Value::Null, "after": contract.description },
         "publisher_id": { "before": Value::Null, "after": contract.publisher_id },
         "network": { "before": Value::Null, "after": contract.network.to_string() },
@@ -3843,10 +3912,46 @@ pub async fn get_contract_graph(
             .await;
     }
 
+
     Ok(Json(graph))
 }
 
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+pub struct LocalGraphParams {
+    pub depth: Option<u32>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/contracts/{id}/graph",
+    responses(
+        (status = 200, description = "Localized interaction graph", body = GraphResponse)
+    ),
+    params(
+        ("id" = String, Path, description = "Contract identifier (UUID)"),
+        ("depth" = Option<u32>, Query, description = "Graph traversal depth (default 1, max 3)")
+    ),
+    tag = "Graphs"
+)]
+pub async fn get_contract_local_graph(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(params): Query<LocalGraphParams>,
+) -> ApiResult<Json<shared::GraphResponse>> {
+    let contract_uuid = Uuid::parse_str(&id)
+        .map_err(|_| ApiError::bad_request("InvalidContractId", format!("Invalid ID: {}", id)))?;
+
+    let depth = params.depth.unwrap_or(1).clamp(1, 3);
+
+    let graph = dependency::build_local_graph(&state.db, contract_uuid, depth)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to build local graph: {}", e)))?;
+
+    Ok(Json(graph))
+}
+
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+
 pub struct ImpactQuery {
     pub change: Option<String>,
 }
@@ -4624,10 +4729,13 @@ pub async fn update_contract_status(
         contract.verified_at
     };
 
-    sqlx::query("UPDATE contracts SET is_verified = $2, verified_at = COALESCE($3, verified_at), updated_at = NOW() WHERE id = $1")
+    sqlx::query("UPDATE contracts SET is_verified = $2, verified_at = COALESCE($3, verified_at), verification_status = $4::verification_status, verified_by = $5, verification_notes = $6, updated_at = NOW() WHERE id = $1")
         .bind(contract_uuid)
         .bind(is_verified_after)
         .bind(verified_at)
+        .bind(&normalized_status)
+        .bind(req.user_id)
+        .bind(req.error_message.as_deref())
         .execute(&state.db)
         .await
         .map_err(|err| db_internal_error("update contract verification flag from status", err))?;
@@ -4637,7 +4745,9 @@ pub async fn update_contract_status(
         let changes = json!({
             "status": { "before": before_status, "after": normalized_status },
             "is_verified": { "before": contract.is_verified, "after": is_verified_after },
-            "verification_id": { "before": Value::Null, "after": verification_id }
+            "verification_id": { "before": Value::Null, "after": verification_id },
+            "verified_by": { "before": contract.publisher_id, "after": req.user_id },
+            "verification_notes": { "before": contract.verified_at.map(|d| d.to_string()), "after": req.error_message }
         });
         write_contract_audit_log(
             &state.db,
@@ -4714,6 +4824,88 @@ pub async fn update_contract_status(
         "status": normalized_status,
         "is_verified": is_verified_after
     })))
+}
+
+pub async fn bulk_update_contract_status(
+    State(state): State<AppState>,
+    ValidatedJson(req): ValidatedJson<shared::BulkStatusUpdateRequest>,
+) -> ApiResult<Json<Value>> {
+    let mut results = Vec::new();
+
+    let mut tx = state.db.begin().await.map_err(|e| db_internal_error("begin tx for bulk status update", e))?;
+
+    for item in req.items.into_iter() {
+        let id = item.id;
+        let normalized_status = item.status.to_ascii_lowercase();
+        if normalized_status != "pending" && normalized_status != "verified" && normalized_status != "failed" {
+            results.push(json!({ "id": id, "ok": false, "error": "invalid_status" }));
+            continue;
+        }
+
+        let contract: Result<Contract, _> = sqlx::query_as("SELECT * FROM contracts WHERE id = $1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await;
+
+        let contract = match contract {
+            Ok(c) => c,
+            Err(_) => {
+                results.push(json!({ "id": id, "ok": false, "error": "not_found" }));
+                continue;
+            }
+        };
+
+        let verified_at: Option<chrono::DateTime<chrono::Utc>> = if normalized_status == "verified" { Some(chrono::Utc::now()) } else { None };
+        let is_verified_after = normalized_status == "verified";
+
+        let verification_id: Result<Uuid, sqlx::Error> = sqlx::query_scalar(
+            "INSERT INTO verifications (contract_id, status, source_code, build_params, compiler_version, verified_at, error_message) VALUES ($1, $2::verification_status, NULL, NULL, NULL, $3, $4) RETURNING id",
+        )
+        .bind(id)
+        .bind(&normalized_status)
+        .bind(verified_at)
+        .bind(item.error_message.as_deref())
+        .fetch_one(&mut *tx)
+        .await;
+
+        if let Err(e) = verification_id {
+            results.push(json!({ "id": id, "ok": false, "error": format!("db_insert_verification: {}", e) }));
+            continue;
+        }
+
+        let verification_id = verification_id.unwrap();
+
+        if let Err(e) = sqlx::query("UPDATE contracts SET is_verified = $2, verified_at = COALESCE($3, verified_at), verification_status = $4::verification_status, verified_by = $5, verification_notes = $6, updated_at = NOW() WHERE id = $1")
+            .bind(id)
+            .bind(is_verified_after)
+            .bind(verified_at)
+            .bind(&normalized_status)
+            .bind(item.user_id)
+            .bind(item.error_message.as_deref())
+            .execute(&mut *tx)
+            .await
+        {
+            results.push(json!({ "id": id, "ok": false, "error": format!("db_update_contract: {}", e) }));
+            continue;
+        }
+
+        // audit log
+        let before_status = "pending".to_string();
+        let changes = json!({
+            "status": { "before": before_status, "after": normalized_status },
+            "is_verified": { "before": contract.is_verified, "after": is_verified_after },
+            "verification_id": { "before": Value::Null, "after": verification_id }
+        });
+
+        let _ = write_contract_audit_log(&state.db, AuditActionType::VerificationChanged, id, item.user_id.unwrap_or(contract.publisher_id), changes, "bulk")
+            .await;
+
+        results.push(json!({ "id": id, "ok": true, "verification_id": verification_id }));
+    }
+
+    tx.commit().await.map_err(|e| db_internal_error("commit bulk status update", e))?;
+
+    Ok(Json(json!({ "results": results })))
 }
 
 #[utoipa::path(

@@ -31,11 +31,12 @@ mod table_format;
 mod test_framework;
 mod webhook;
 mod wizard;
-mod cicd;
+mod shell;
 mod track_deployment;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use colored::Colorize;
 use patch::Severity;
 
 /// Soroban Registry CLI — discover, publish, verify, and deploy Soroban contracts
@@ -236,6 +237,13 @@ pub enum Commands {
 
     /// Launch the interactive setup wizard
     Wizard {},
+
+    /// Launch the interactive shell
+    Shell {
+        /// Initial network
+        #[arg(long)]
+        network: Option<String>,
+    },
 
     /// Show command history
     History {
@@ -1060,16 +1068,38 @@ async fn main() -> Result<()> {
     log::debug!("Verbose mode enabled");
     log::debug!("API URL: {}", cli.api_url);
 
-    // ── Resolve network ───────────────────────────────────────────────────────
-    let cfg_network = config::resolve_network(cli.network.clone())?;
-    let mut net_str = cfg_network.to_string();
-    if net_str == "auto" {
-        net_str = "mainnet".to_string();
+    handle_command(cli).await
+}
+
+pub async fn handle_command(cli: Cli) -> Result<()> {
+    match cli.command {
+        Commands::Shell { network: shell_network } => {
+            shell::run(&cli.api_url, shell_network).await
+        }
+        _ => {
+             // ── Resolve network ───────────────────────────────────────────────────────
+            let cfg_network = config::resolve_network(cli.network.clone())?;
+            let mut net_str = cfg_network.to_string();
+            if net_str == "auto" {
+                net_str = "mainnet".to_string();
+            }
+            let network: commands::Network = net_str.parse().unwrap();
+            
+            dispatch_command(cli, network, cfg_network).await
+        }
     }
-    let network: commands::Network = net_str.parse().unwrap();
+}
+
+pub async fn dispatch_command(cli: Cli, network: commands::Network, cfg_network: crate::config::Network) -> Result<()> {
     log::debug!("Network: {:?}", network);
 
     match cli.command {
+        Commands::Shell { .. } => {
+            // Already handled at top level, but for completeness or nested calls:
+            // We could call shell::run here again but to break recursion we don't.
+            println!("{}", "Warning: Shell already running".yellow());
+            return Ok(());
+        }
         Commands::Search {
             query,
             verified_only,

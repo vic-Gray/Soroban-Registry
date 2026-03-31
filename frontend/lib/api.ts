@@ -239,6 +239,8 @@ export interface ContractSearchParams {
   page_size?: number;
   sort_by?: 'name' | 'created_at' | 'updated_at' | 'popularity' | 'deployments' | 'interactions' | 'relevance' | 'downloads';
   sort_order?: 'asc' | 'desc';
+  date_from?: string;
+  date_to?: string;
 }
 
 export interface SearchSuggestion {
@@ -541,6 +543,17 @@ export const api = {
             filtered = filtered.filter((c) => c.is_verified);
           }
 
+          if (params?.date_from) {
+            const fromTime = new Date(params.date_from).getTime();
+            filtered = filtered.filter((c) => new Date(c.created_at).getTime() >= fromTime);
+          }
+          if (params?.date_to) {
+            const toDate = new Date(params.date_to);
+            toDate.setUTCHours(23, 59, 59, 999);
+            const toTime = toDate.getTime();
+            filtered = filtered.filter((c) => new Date(c.created_at).getTime() <= toTime);
+          }
+
           const sortBy = params?.sort_by || "created_at";
           const sortOrder = params?.sort_order || "desc";
           filtered.sort((a, b) => {
@@ -598,6 +611,8 @@ export const api = {
     );
     if (params?.author) queryParams.append("author", params.author);
     params?.tags?.forEach((tag) => queryParams.append("tag", tag));
+    if (params?.date_from) queryParams.append("date_from", params.date_from);
+    if (params?.date_to) queryParams.append("date_to", params.date_to);
     // Backend expects sort_by without underscores: createdat, updatedat, popularity, deployments, interactions, relevance
     if (params?.sort_by) {
       const backendSortBy =

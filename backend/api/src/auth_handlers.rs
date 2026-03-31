@@ -10,32 +10,53 @@ use crate::{
     state::AppState,
 };
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub struct ChallengeQuery {
+    /// Stellar wallet address to authenticate
     pub address: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ChallengeResponse {
+    /// Same address passed in query
     pub address: String,
+    /// Random nonce to be signed by the wallet
     pub nonce: String,
+    /// How long before this challenge expires
     pub expires_in_seconds: u64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[schema(as = AuthVerifyRequest)]
 pub struct VerifyRequest {
+    /// Stellar wallet address being authenticated
     pub address: String,
+    /// Ed25519 public key in hex
     pub public_key: String,
+    /// Signed nonce in hex
     pub signature: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct VerifyResponse {
+    /// JSON Web Token for authentication
     pub token: String,
+    /// Always "Bearer"
     pub token_type: &'static str,
+    /// Seconds until token expiration
     pub expires_in_seconds: u64,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/auth/challenge",
+    params(ChallengeQuery),
+    responses(
+        (status = 200, description = "Challenge created", body = ChallengeResponse),
+        (status = 400, description = "Invalid address provided")
+    ),
+    tag = "Authentication"
+)]
 pub async fn get_challenge(
     State(state): State<AppState>,
     Query(query): Query<ChallengeQuery>,
@@ -55,6 +76,17 @@ pub async fn get_challenge(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/auth/verify",
+    request_body = VerifyRequest,
+    responses(
+        (status = 200, description = "Authentication successful", body = VerifyResponse),
+        (status = 401, description = "Authentication failed"),
+        (status = 400, description = "Invalid payload")
+    ),
+    tag = "Authentication"
+)]
 pub async fn verify_challenge(
     State(state): State<AppState>,
     Json(payload): Json<VerifyRequest>,
@@ -102,7 +134,7 @@ mod tests {
     use std::sync::{Arc, RwLock};
     use std::time::Instant;
 
-    fn test_app_state() -> AppState {
+    async fn test_app_state() -> AppState {
         let db = sqlx::pool::PoolOptions::new()
             .max_connections(1)
             .connect_lazy("postgres://localhost/test")
@@ -113,10 +145,11 @@ mod tests {
         )));
         let resource_mgr = Arc::new(RwLock::new(ResourceManager::new()));
         let (job_engine, _rx) = soroban_batch::engine::JobEngine::new();
+        let (event_broadcaster, _) = tokio::sync::broadcast::channel(100);
         AppState {
             db,
             started_at: Instant::now(),
-            cache: Arc::new(CacheLayer::new(CacheConfig::default())),
+            cache: Arc::new(CacheLayer::new(CacheConfig::default()).await),
             registry,
             job_engine: Arc::new(job_engine),
             is_shutting_down: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -124,12 +157,14 @@ mod tests {
             auth_mgr,
             resource_mgr,
             contract_events: Arc::new(ContractEventHub::from_env()),
+            source_storage: Arc::new(shared::source_storage::SourceStorage::new().await.unwrap()),
+            event_broadcaster,
         }
     }
 
     #[tokio::test]
     async fn challenge_returns_nonce_for_address() {
-        let state = test_app_state();
+        let state = test_app_state().await;
         let query = ChallengeQuery {
             address: "GABCDEF".to_string(),
         };
@@ -143,7 +178,7 @@ mod tests {
 
     #[tokio::test]
     async fn challenge_rejects_empty_address() {
-        let state = test_app_state();
+        let state = test_app_state().await;
         let query = ChallengeQuery {
             address: "   ".to_string(),
         };
@@ -153,7 +188,7 @@ mod tests {
 
     #[tokio::test]
     async fn verify_issues_jwt_when_signature_valid() {
-        let state = test_app_state();
+        let state = test_app_state().await;
         let key = SigningKey::from_bytes(&[1u8; 32]);
         let address_hex = hex::encode(key.verifying_key().as_bytes());
 

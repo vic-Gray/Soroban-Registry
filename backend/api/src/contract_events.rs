@@ -267,11 +267,13 @@ impl SubscriptionFilter {
         None
     }
 
+    #[allow(dead_code)]
     fn matches(&self, event: &ContractEventEnvelope) -> bool {
         if !self.contract_ids.is_empty() {
             let contract_uuid = event.contract.id.to_string().to_ascii_lowercase();
             let contract_id = event.contract.contract_id.to_ascii_lowercase();
-            if !self.contract_ids.contains(&contract_uuid) && !self.contract_ids.contains(&contract_id)
+            if !self.contract_ids.contains(&contract_uuid)
+                && !self.contract_ids.contains(&contract_id)
             {
                 return false;
             }
@@ -343,9 +345,8 @@ enum ServerMessage {
         subscriptions: SubscriptionSnapshot,
         warning: Option<String>,
     },
-    Event {
-        event: Arc<ContractEventEnvelope>,
-    },
+    #[allow(dead_code)]
+    Event { event: Arc<ContractEventEnvelope> },
     Heartbeat {
         timestamp: chrono::DateTime<chrono::Utc>,
         reconnect_after_ms: u64,
@@ -354,6 +355,7 @@ enum ServerMessage {
         message: String,
         reconnect_after_ms: u64,
     },
+    #[allow(dead_code)]
     ResyncRequired {
         dropped_events: u64,
         reconnect_after_ms: u64,
@@ -417,7 +419,9 @@ fn authenticate_connection(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let token = bearer.or(access_token.map(str::trim).filter(|value| !value.is_empty()))?;
+    let token = bearer.or(access_token
+        .map(str::trim)
+        .filter(|value| !value.is_empty()))?;
     let auth = state.auth_mgr.read().ok()?;
     auth.validate_jwt(token).ok()
 }
@@ -429,11 +433,15 @@ async fn handle_socket(
     claims: Option<AuthClaims>,
     auth_warning: Option<String>,
 ) {
-    let connection_id = state.contract_events.next_connection_id();
+    // Use u64 counter for connection ID
+    static CONNECTION_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let connection_id = CONNECTION_COUNTER.fetch_add(1, Ordering::Relaxed);
     let (mut sender, mut receiver) = socket.split();
-    let mut events = state.contract_events.subscribe();
-    let heartbeat_ms = state.contract_events.heartbeat_interval_ms();
-    let reconnect_ms = state.contract_events.reconnect_after_ms();
+    let mut events = state.event_broadcaster.subscribe();
+
+    // Fixed intervals for heartbeat and reconnect
+    let heartbeat_ms: u64 = 30_000; // 30 seconds
+    let reconnect_ms: u64 = 5_000; // 5 seconds
 
     let connected = ServerMessage::Connected {
         connection_id,
@@ -475,19 +483,22 @@ async fn handle_socket(
                 match event {
                     Ok(event) => {
                         if filter.matches(&event) {
-                            let msg = ServerMessage::Event { event };
+                            let msg = ServerMessage::Event { event: event.clone() };
                             if send_json(&mut sender, &msg).await.is_err() {
                                 break;
                             }
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                        let msg = ServerMessage::ResyncRequired {
-                            dropped_events: skipped,
-                            reconnect_after_ms: reconnect_ms,
-                        };
-                        if send_json(&mut sender, &msg).await.is_err() {
-                            break;
+                        let msg = serde_json::json!({
+                            "type": "resync_required",
+                            "dropped_events": skipped,
+                            "reconnect_after_ms": reconnect_ms,
+                        });
+                        if let Ok(msg_str) = serde_json::to_string(&msg) {
+                            if sender.send(Message::Text(msg_str)).await.is_err() {
+                                break;
+                            }
                         }
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
@@ -501,7 +512,7 @@ async fn handle_socket(
                 if send_json(&mut sender, &msg).await.is_err() {
                     break;
                 }
-                if sender.send(Message::Ping(Vec::new().into())).await.is_err() {
+                if sender.send(Message::Ping(Vec::new())).await.is_err() {
                     break;
                 }
             }
@@ -559,9 +570,9 @@ async fn send_json(
     sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
     message: &ServerMessage,
 ) -> Result<(), axum::Error> {
-    let payload = serde_json::to_string(message)
-        .expect("server websocket messages should always serialize");
-    sender.send(Message::Text(payload.into())).await
+    let payload =
+        serde_json::to_string(message).expect("server websocket messages should always serialize");
+    sender.send(Message::Text(payload)).await
 }
 
 #[cfg(test)]
@@ -587,6 +598,12 @@ mod tests {
             is_maintenance: false,
             logical_id: None,
             network_configs: None,
+            verified_at: None,
+            last_accessed_at: None,
+            relevance_score: None,
+            organization_id: None,
+            visibility: shared::VisibilityType::Public,
+            current_version: None,
         }
     }
 

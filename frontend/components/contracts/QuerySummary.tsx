@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import { QueryNode, QueryOperator, FieldOperator } from '@/lib/api';
-import { Search, Info } from 'lucide-react';
+import { QueryNode, FieldOperator } from '@/lib/api';
+import { Info } from 'lucide-react';
 
 interface QuerySummaryProps {
   query: QueryNode;
@@ -30,29 +30,30 @@ const OP_LABELS: Record<FieldOperator, string> = {
 
 export default function QuerySummary({ query, className = '' }: QuerySummaryProps) {
   const renderNode = (node: QueryNode): string => {
-    if ('operator' in node) {
-      if (node.conditions.length === 0) return '';
-      
-      const parts = node.conditions
-        .map(c => renderNode(c))
-        .filter(Boolean);
-        
+    if ('conditions' in node) {
+      const { conditions, operator } = node;
+      if (conditions.length === 0) return '';
+
+      const parts = conditions.map((c) => renderNode(c)).filter(Boolean);
+
       if (parts.length === 1) return parts[0];
-      
-      const joined = parts.join(` ${node.operator} `);
+
+      const joined = parts.join(` ${operator} `);
       return `(${joined})`;
     }
 
     const field = FIELD_LABELS[node.field] || node.field;
     const op = OP_LABELS[node.operator] || node.operator;
-    let val = node.value;
-    
+    let val: string;
+
     if (node.field === 'verified') {
       val = node.value ? 'Verified' : 'Unverified';
     } else if (Array.isArray(node.value)) {
       val = `[${node.value.join(', ')}]`;
     } else if (typeof node.value === 'string') {
       val = `'${node.value}'`;
+    } else {
+      val = String(node.value);
     }
 
     return `${field} ${op} ${val}`;

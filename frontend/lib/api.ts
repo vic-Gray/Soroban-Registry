@@ -188,6 +188,35 @@ export interface ContractChangelogResponse {
   entries: ContractChangelogEntry[];
 }
 
+export interface RecommendationReason {
+  code: string;
+  message: string;
+  weight: number;
+}
+
+export interface RecommendedContract {
+  id: string;
+  contract_id: string;
+  name: string;
+  description?: string;
+  network: Network;
+  category?: string;
+  popularity_score: number;
+  similarity_score: number;
+  recommendation_score: number;
+  reasons: RecommendationReason[];
+  explanation: string;
+}
+
+export interface ContractRecommendationsResponse {
+  contract_id: string;
+  algorithm: string;
+  ab_variant: string;
+  cached: boolean;
+  generated_at: string;
+  recommendations: RecommendedContract[];
+}
+
 export interface Publisher {
   id: string;
   stellar_address: string;
@@ -198,6 +227,38 @@ export interface Publisher {
   // Image fields for publisher avatar
   avatar_url?: string;
   created_at: string;
+}
+
+export type AnalyticsEventType = 
+  | 'contract_published' 
+  | 'contract_verified' 
+  | 'contract_deployed' 
+  | 'version_created' 
+  | 'contract_updated' 
+  | 'publisher_created' 
+  | 'search_click';
+
+export interface AnalyticsEvent {
+  id: string;
+  event_type: AnalyticsEventType;
+  contract_id: string;
+  user_address: string | null;
+  network: Network | null;
+  metadata: any;
+  created_at: string;
+}
+
+export interface ActivityFeedParams {
+  cursor?: string;
+  limit?: number;
+  event_type?: AnalyticsEventType;
+}
+
+export interface ActivityFeedResponse {
+  items: AnalyticsEvent[];
+  total: number;
+  limit: number;
+  next_cursor: string | null;
 }
 
 export interface PaginatedResponse<T> {
@@ -611,16 +672,11 @@ export const api = {
     );
     if (params?.author) queryParams.append("author", params.author);
     params?.tags?.forEach((tag) => queryParams.append("tag", tag));
-    if (params?.date_from) queryParams.append("date_from", params.date_from);
-    if (params?.date_to) queryParams.append("date_to", params.date_to);
-    // Backend expects sort_by without underscores: createdat, updatedat, popularity, deployments, interactions, relevance
+    // Backend accepts sort_by as specified (e.g. created_at, updated_at, popularity, deployments).
+    // For legacy UI labels we keep a small compatibility mapping.
     if (params?.sort_by) {
       const backendSortBy =
-        params.sort_by === 'created_at' ? 'createdat'
-        : params.sort_by === 'updated_at' ? 'updatedat'
-        : params.sort_by === 'name' ? 'name'
-        : params.sort_by === 'downloads' ? 'interactions'
-        : params.sort_by;
+        params.sort_by === 'downloads' ? 'interactions' : params.sort_by;
       queryParams.append("sort_by", backendSortBy);
     }
     if (params?.sort_order) queryParams.append("sort_order", params.sort_order);
@@ -783,12 +839,24 @@ export const api = {
     );
   },
 
+
   async getContractDependencies(id: string): Promise<DependencyTreeNode[]> {
     return handleApiCall<DependencyTreeNode[]>(
       () => fetch(`${API_URL}/api/contracts/${id}/dependencies`),
       `/api/contracts/${id}/dependencies`
     );
   },
+
+  async getContractLocalGraph(id: string, depth?: number): Promise<GraphResponse> {
+    const search = new URLSearchParams();
+    if (depth != null) search.set("depth", String(depth));
+    const qs = search.toString();
+    return handleApiCall<GraphResponse>(
+      () => fetch(`${API_URL}/api/contracts/${id}/graph${qs ? `?${qs}` : ""}`),
+      `/api/contracts/${id}/graph`
+    );
+  },
+
 
   async getContractInteractions(
     id: string,
@@ -813,6 +881,65 @@ export const api = {
     const response = await fetch(`${API_URL}/api/contracts/${id}/analytics`);
     if (!response.ok) throw new Error("Failed to fetch contract analytics");
     return response.json();
+  },
+
+  async getActivityFeed(params?: ActivityFeedParams): Promise<ActivityFeedResponse> {
+    if (USE_MOCKS) {
+      // Basic mock for activity feed
+      const items: AnalyticsEvent[] = [
+        {
+          id: '1',
+          event_type: 'contract_published',
+          contract_id: 'C123...',
+          user_address: 'G...123',
+          network: 'testnet',
+          metadata: { name: 'SorobanToken' },
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: '2',
+          event_type: 'contract_verified',
+          contract_id: 'C456...',
+          user_address: 'G...456',
+          network: 'mainnet',
+          metadata: { name: 'BridgeContract' },
+          created_at: new Date(Date.now() - 3600000).toISOString(),
+        }
+      ];
+      return {
+        items,
+        total: items.length,
+        limit: params?.limit ?? 20,
+        next_cursor: null,
+      };
+    }
+
+    const search = new URLSearchParams();
+    if (params?.cursor) search.set("cursor", params.cursor);
+    if (params?.limit != null) search.set("limit", String(params.limit));
+    if (params?.event_type) search.set("event_type", params.event_type);
+
+    const qs = search.toString();
+    return handleApiCall<ActivityFeedResponse>(
+      () => fetch(`${API_URL}/api/activity-feed${qs ? `?${qs}` : ""}`),
+      "/api/activity-feed"
+    );
+  },
+
+  async getContractRecommendations(
+    id: string,
+    params?: { limit?: number; network?: Network; subject?: string; algorithm?: "hybrid_v1" | "hybrid_v2" },
+  ): Promise<ContractRecommendationsResponse> {
+    const search = new URLSearchParams();
+    if (params?.limit != null) search.set("limit", String(params.limit));
+    if (params?.network) search.set("network", params.network);
+    if (params?.subject) search.set("subject", params.subject);
+    if (params?.algorithm) search.set("algorithm", params.algorithm);
+
+    return handleApiCall<ContractRecommendationsResponse>(
+      () => fetch(`${API_URL}/api/contracts/${id}/recommendations${search.toString() ? `?${search.toString()}` : ""}`),
+      `/api/contracts/${id}/recommendations`
+    );
   },
 
   async publishContract(data: PublishRequest): Promise<Contract> {
@@ -1030,9 +1157,9 @@ export const api = {
     );
   },
 
-  // Compatibility endpoints
-  async getCompatibility(id: string): Promise<CompatibilityMatrix> {
-    return handleApiCall<CompatibilityMatrix>(
+  // Interoperability analysis endpoint
+  async getCompatibility(id: string): Promise<ContractInteroperabilityResponse> {
+    return handleApiCall<ContractInteroperabilityResponse>(
       () => fetch(`${API_URL}/api/contracts/${id}/compatibility`),
       `/api/contracts/${id}/compatibility`
     );
@@ -1279,6 +1406,104 @@ export const api = {
       throw new Error(`Failed to delete favorite search: ${response.statusText}`);
     }
   },
+
+  // ── Contract Comments / Discussion (Issue #516) ───────────────────────────
+
+  async getComments(contractId: string): Promise<CommentListResponse> {
+    if (USE_MOCKS || typeof window !== 'undefined') {
+      return Promise.resolve(getLocalComments(contractId));
+    }
+    return handleApiCall<CommentListResponse>(
+      () => fetch(`${API_URL}/api/contracts/${contractId}/comments`),
+      `/api/contracts/${contractId}/comments`
+    );
+  },
+
+  async postComment(
+    contractId: string,
+    body: string,
+    parentId?: string
+  ): Promise<Comment> {
+    if (USE_MOCKS || typeof window !== 'undefined') {
+      const comment: Comment = {
+        id: `local-${Date.now()}`,
+        contract_id: contractId,
+        parent_id: parentId ?? null,
+        author: 'You',
+        body,
+        created_at: new Date().toISOString(),
+        score: 0,
+        flagged: false,
+        flag_count: 0,
+      };
+      const stored = getLocalComments(contractId);
+      stored.items.unshift(comment);
+      stored.total += 1;
+      setLocalComments(contractId, stored);
+      return Promise.resolve(comment);
+    }
+    return handleApiCall<Comment>(
+      () =>
+        fetch(`${API_URL}/api/contracts/${contractId}/comments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body, parent_id: parentId }),
+        }),
+      `/api/contracts/${contractId}/comments`
+    );
+  },
+
+  async voteComment(
+    commentId: string,
+    contractId: string,
+    direction: 'up' | 'down'
+  ): Promise<CommentVote> {
+    if (USE_MOCKS || typeof window !== 'undefined') {
+      const stored = getLocalComments(contractId);
+      stored.items = stored.items.map((c) =>
+        c.id === commentId
+          ? { ...c, score: c.score + (direction === 'up' ? 1 : -1) }
+          : c
+      );
+      setLocalComments(contractId, stored);
+      return Promise.resolve({ comment_id: commentId, direction });
+    }
+    return handleApiCall<CommentVote>(
+      () =>
+        fetch(`${API_URL}/api/comments/${commentId}/vote`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ direction }),
+        }),
+      `/api/comments/${commentId}/vote`
+    );
+  },
+
+  async flagComment(
+    commentId: string,
+    contractId: string,
+    reason: string
+  ): Promise<CommentFlag> {
+    if (USE_MOCKS || typeof window !== 'undefined') {
+      const stored = getLocalComments(contractId);
+      stored.items = stored.items.map((c) =>
+        c.id === commentId
+          ? { ...c, flagged: true, flag_count: c.flag_count + 1 }
+          : c
+      );
+      setLocalComments(contractId, stored);
+      return Promise.resolve({ comment_id: commentId, reason });
+    }
+    return handleApiCall<CommentFlag>(
+      () =>
+        fetch(`${API_URL}/api/comments/${commentId}/flag`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason }),
+        }),
+      `/api/comments/${commentId}/flag`
+    );
+  },
 };
 
 export interface Template {
@@ -1348,6 +1573,68 @@ export interface ExampleRating {
   created_at: string;
 }
 
+export type ProtocolComplianceStatus = 'compliant' | 'partial' | 'unsupported';
+
+export type InteroperabilityCapabilityKind = 'bridge' | 'adapter';
+
+export interface InteroperabilityProtocolMatch {
+  slug: string;
+  name: string;
+  description: string;
+  status: ProtocolComplianceStatus;
+  matched_functions: string[];
+  missing_functions: string[];
+  optional_matches: string[];
+  compliance_score: number;
+}
+
+export interface InteroperabilityCapability {
+  kind: InteroperabilityCapabilityKind;
+  label: string;
+  confidence: number;
+  evidence: string[];
+}
+
+export interface InteroperabilitySuggestion {
+  contract_id: string;
+  contract_address: string;
+  contract_name: string;
+  network: Network;
+  category?: string;
+  is_verified: boolean;
+  score: number;
+  reason: string;
+  shared_protocols: string[];
+  shared_functions: string[];
+  relation_types: string[];
+}
+
+export interface InteroperabilitySummary {
+  protocol_matches: number;
+  compatible_contracts: number;
+  suggested_contracts: number;
+  graph_nodes: number;
+  graph_edges: number;
+  bridge_signals: number;
+  adapter_signals: number;
+}
+
+export interface ContractInteroperabilityResponse {
+  contract_id: string;
+  contract_address: string;
+  contract_name: string;
+  network: Network;
+  analyzed_at: string;
+  has_abi: boolean;
+  analyzed_functions: string[];
+  warnings: string[];
+  protocols: InteroperabilityProtocolMatch[];
+  capabilities: InteroperabilityCapability[];
+  suggestions: InteroperabilitySuggestion[];
+  graph: GraphResponse;
+  summary: InteroperabilitySummary;
+}
+
 // ─── Compatibility Matrix ────────────────────────────────────────────────────
 
 export interface CompatibilityEntry {
@@ -1359,7 +1646,7 @@ export interface CompatibilityEntry {
   is_compatible: boolean;
 }
 
-/** Shape returned by GET /api/contracts/:id/compatibility */
+/** Legacy compatibility matrix shape retained for matrix/export workflows. */
 export interface CompatibilityMatrix {
   contract_id: string;
   /** Keyed by source version string */
@@ -1568,7 +1855,7 @@ export type FieldOperator = 'eq' | 'ne' | 'gt' | 'lt' | 'in' | 'contains' | 'sta
 export interface QueryCondition {
   field: string;
   operator: FieldOperator;
-  value: any;
+  value: string | number | boolean | string[];
 }
 
 export type QueryNode = 
@@ -1595,4 +1882,85 @@ export interface FavoriteSearch {
 export interface SaveFavoriteSearchRequest {
   name: string;
   query: QueryNode;
+}
+
+// ─── Comment / Discussion (Issue #516) ───────────────────────────────────────
+
+export interface Comment {
+  id: string;
+  contract_id: string;
+  parent_id: string | null;
+  author: string;
+  body: string;
+  created_at: string;
+  score: number;
+  flagged: boolean;
+  flag_count: number;
+}
+
+export interface CommentVote {
+  comment_id: string;
+  direction: 'up' | 'down';
+}
+
+export interface CommentFlag {
+  comment_id: string;
+  reason: string;
+}
+
+export interface CommentListResponse {
+  items: Comment[];
+  total: number;
+}
+
+const COMMENT_STORAGE_PREFIX = 'soroban_comments_';
+
+function seedComments(contractId: string): CommentListResponse {
+  const now = new Date();
+  const older = new Date(now.getTime() - 1000 * 60 * 60 * 24).toISOString();
+  const root: Comment = {
+    id: 'seed-1',
+    contract_id: contractId,
+    parent_id: null,
+    author: 'GDRXE7BFEBOWQ3BHPNFTUOBCIGGKCGJPNIDZWNOSIROWKJZTIVWY5WYP',
+    body: 'Great contract. Works well with the token factory. One thing to note: calling `transfer` with a zero amount will silently succeed rather than returning an error.',
+    created_at: older,
+    score: 4,
+    flagged: false,
+    flag_count: 0,
+  };
+  const reply: Comment = {
+    id: 'seed-2',
+    contract_id: contractId,
+    parent_id: 'seed-1',
+    author: 'GCO2IP3MJNUOKS4PUDI4C7LGGMQDJGXG3COYX3WSB4HHNAHKYV5YL3VC',
+    body: 'Confirmed. Also worth checking the `allowance` return value before calling `transfer_from` — the ABI says `i128` but the error is opaque when allowance is exceeded.',
+    created_at: now.toISOString(),
+    score: 2,
+    flagged: false,
+    flag_count: 0,
+  };
+  return { items: [root, reply], total: 2 };
+}
+
+function getLocalComments(contractId: string): CommentListResponse {
+  if (typeof window === 'undefined') return { items: [], total: 0 };
+  const key = `${COMMENT_STORAGE_PREFIX}${contractId}`;
+  const raw = window.localStorage.getItem(key);
+  if (!raw) {
+    const seeded = seedComments(contractId);
+    window.localStorage.setItem(key, JSON.stringify(seeded));
+    return seeded;
+  }
+  try {
+    return JSON.parse(raw) as CommentListResponse;
+  } catch {
+    return { items: [], total: 0 };
+  }
+}
+
+function setLocalComments(contractId: string, data: CommentListResponse): void {
+  if (typeof window === 'undefined') return;
+  const key = `${COMMENT_STORAGE_PREFIX}${contractId}`;
+  window.localStorage.setItem(key, JSON.stringify(data));
 }

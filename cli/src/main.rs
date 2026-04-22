@@ -260,8 +260,9 @@ pub enum Commands {
     /// Launch the interactive setup wizard
     Wizard {},
 
-    /// Launch the interactive shell
-    Shell {
+    /// Enter interactive REPL mode
+    #[command(alias = "shell")]
+    Repl {
         /// Initial network
         #[arg(long)]
         network: Option<String>,
@@ -1127,9 +1128,7 @@ async fn main() -> Result<()> {
 
 pub async fn handle_command(cli: Cli) -> Result<()> {
     match cli.command {
-        Commands::Shell { network: shell_network } => {
-            shell::run(&cli.api_url, shell_network).await
-        }
+        Commands::Repl { network: shell_network } => shell::run(&cli.api_url, shell_network).await,
         _ => {
              // ── Resolve network ───────────────────────────────────────────────────────
             let cfg_network = config::resolve_network(cli.network.clone())?;
@@ -1148,10 +1147,10 @@ pub async fn dispatch_command(cli: Cli, network: commands::Network, cfg_network:
     log::debug!("Network: {:?}", network);
 
     match cli.command {
-        Commands::Shell { .. } => {
+        Commands::Repl { .. } => {
             // Already handled at top level, but for completeness or nested calls:
             // We could call shell::run here again but to break recursion we don't.
-            println!("{}", "Warning: Shell already running".yellow());
+            println!("{}", "Warning: REPL already running".yellow());
             return Ok(());
         }
         Commands::Search {

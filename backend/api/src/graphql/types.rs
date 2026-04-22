@@ -535,9 +535,9 @@ impl From<ContractPerformanceSummaryResponse> for PerformanceSummaryType {
         Self {
             latest_benchmarks: s.latest_benchmarks.into_iter().map(PerformanceBenchmarkType::from).collect(),
             metric_snapshots: s.metric_snapshots.into_iter().map(PerformanceMetricSnapshotType::from).collect(),
-            trends: s.trends.into_iter().map(PerformanceTrendPointType::from).collect(),
+            trends: s.trend_points.into_iter().map(PerformanceTrendPointType::from).collect(),
             regressions: s.regressions.into_iter().map(PerformanceRegressionType::from).collect(),
-            unresolved_alerts: s.unresolved_alerts.into_iter().map(PerformanceAlertType::from).collect(),
+            unresolved_alerts: s.recent_alerts.into_iter().map(PerformanceAlertType::from).collect(),
         }
     }
 }

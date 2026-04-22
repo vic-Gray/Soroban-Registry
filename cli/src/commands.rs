@@ -549,8 +549,6 @@ pub async fn publish(
 
     Ok(())
 }
-
-pub async fn list(api_url: &str, limit: usize, network: Network, json: bool) -> Result<()> {
 fn detect_test_command(contract_dir: &Path) -> Option<String> {
     if contract_dir.join("Cargo.toml").exists() {
         return Some("cargo test".to_string());

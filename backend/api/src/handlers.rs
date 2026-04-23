@@ -1319,6 +1319,22 @@ pub async fn list_contracts(
         Err(err) => return map_query_rejection(err).into_response(),
     };
 
+    let cache_key = match serde_json::to_string(&params) {
+        Ok(json) => {
+            let sub = claims.as_ref().map(|c| c.sub.as_str()).unwrap_or("public");
+            format!("contracts:list:{}:{}", sub, json)
+        }
+        Err(_) => String::new(),
+    };
+
+    if !cache_key.is_empty() {
+        if let Some(cached) = state.cache.get_contracts(&cache_key).await {
+            if let Ok(response) = serde_json::from_str::<PaginatedResponse<Contract>>(&cached) {
+                return Json(response).into_response();
+            }
+        }
+    }
+
     let (limit, offset, page) = match validate_contract_list_pagination(&params) {
         Ok(values) => values,
         Err(err) => return err.into_response(),
@@ -1496,45 +1512,15 @@ pub async fn list_contracts(
         Err(err) => return db_internal_error("count contracts", err).into_response(),
     };
 
-    // Weights for ranking
-    let w_text = 1.0;
-    let w_pop = 0.5;
-    let w_rec = 0.3;
-    let w_rat = 0.4;
-    let w_pers = 0.5;
+    let response = PaginatedResponse::new(contracts, total, page, limit);
 
-    let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new("WITH contract_stats AS (\n");
-    query.push(
-        "    SELECT 
-                c.id,
-                COUNT(DISTINCT ci.id) as interaction_count,
-                COUNT(DISTINCT cv.id) as deployment_count,
-                COALESCE(AVG(r.rating), 0) as avg_rating,
-                COUNT(DISTINCT r.id) as review_count",
-    );
-
-    query.push(",\n                0 as user_interaction_count");
-
-    query.push(
-        "\n            FROM contracts c
-            LEFT JOIN contract_interactions ci ON c.id = ci.contract_id
-            LEFT JOIN contract_versions cv ON c.id = cv.contract_id
-            LEFT JOIN reviews r ON c.id = r.contract_id AND r.is_flagged = FALSE
-            GROUP BY c.id
-        ),\n",
-    );
-
-    query.push("ranked_contracts AS (\n");
-    query.push("    SELECT \n");
-    query.push("        c.*, \n");
-
-    if let Some(ref q) = params.query {
-        query.push("        ts_rank_cd(c.search_vector, plainto_tsquery('english', ");
-        query.push_bind(q);
-        query.push(")) as relevance_score,\n");
-    } else {
-        query.push("        0.0 as relevance_score,\n");
+    if !cache_key.is_empty() {
+        if let Ok(serialized) = serde_json::to_string(&response) {
+            state.cache.put_contracts(cache_key, serialized).await;
+        }
     }
+
+    Json(response).into_response()
 }
 
 fn optional_json_string(value: &Option<serde_json::Value>) -> String {
@@ -2618,6 +2604,7 @@ pub async fn revert_contract_version(
 
     state.cache.invalidate_abi(&contract_id).await;
     state.cache.invalidate_abi(&contract_uuid.to_string()).await;
+    state.cache.invalidate_contracts().await;
 
     Ok(Json(version_row))
 }
@@ -3416,6 +3403,7 @@ pub async fn create_contract_version(
                 &version_row,
             ));
     }
+    state.cache.invalidate_contracts().await;
 
     Ok(Json(version_row))
 }
@@ -3695,6 +3683,7 @@ pub async fn publish_contract(
         );
     }
 
+    state.cache.invalidate_contracts().await;
     Ok(Json(contract))
 }
 
@@ -4782,6 +4771,7 @@ pub async fn update_contract_metadata(
             ));
     }
 
+    state.cache.invalidate_contracts().await;
     Ok(Json(after))
 }
 
@@ -4871,6 +4861,7 @@ pub async fn change_contract_publisher(
         .map_err(|err| db_internal_error("write publisher_changed audit log", err))?;
     }
 
+    state.cache.invalidate_contracts().await;
     Ok(Json(after))
 }
 
@@ -5047,6 +5038,7 @@ pub async fn update_contract_status(
             ));
     }
 
+    state.cache.invalidate_contracts().await;
     Ok(Json(json!({
         "contract_id": contract_uuid,
         "verification_id": verification_id,
@@ -5134,6 +5126,7 @@ pub async fn bulk_update_contract_status(
 
     tx.commit().await.map_err(|e| db_internal_error("commit bulk status update", e))?;
 
+    state.cache.invalidate_contracts().await;
     Ok(Json(json!({ "results": results })))
 }
 

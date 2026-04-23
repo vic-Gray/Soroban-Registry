@@ -13,6 +13,7 @@ pub struct CacheConfig {
     pub max_capacity: u64,
     pub redis_enabled: bool,
     pub redis_url: Option<String>,
+    pub contracts_ttl: u64,
 }
 
 impl Default for CacheConfig {
@@ -22,6 +23,7 @@ impl Default for CacheConfig {
             max_capacity: 10_000,
             redis_enabled: false,
             redis_url: None,
+            contracts_ttl: 300, // 5 minutes
         }
     }
 }
@@ -44,6 +46,12 @@ impl CacheConfig {
             config.redis_enabled = redis_enabled_str.to_lowercase() == "true";
         }
 
+        if let Ok(contracts_ttl_str) = std::env::var("CONTRACTS_CACHE_TTL") {
+            if let Ok(ttl) = contracts_ttl_str.parse::<u64>() {
+                config.contracts_ttl = ttl;
+            }
+        }
+
         config.redis_url = std::env::var("REDIS_URL").ok();
 
         tracing::info!(
@@ -61,6 +69,7 @@ pub struct CacheLayer {
     pub abi_cache: MokaCache<String, String>,
     pub verification_cache: MokaCache<String, String>,
     pub generic_cache: MokaCache<String, String>,
+    pub contracts_cache: MokaCache<String, String>,
     pub contract_access_cache: MokaCache<String, bool>,
     config: CacheConfig,
     pub redis_cm: Option<ConnectionManager>,
@@ -88,6 +97,12 @@ impl CacheLayer {
             .max_capacity(config.max_capacity)
             .weigher(|_k, v: &String| -> u32 { v.len().try_into().unwrap_or(u32::MAX) })
             .time_to_live(Duration::from_secs(3600))
+            .build();
+
+        let contracts_cache = MokaCache::builder()
+            .max_capacity(config.max_capacity)
+            .weigher(|_k, v: &String| -> u32 { v.len().try_into().unwrap_or(u32::MAX) })
+            .time_to_live(Duration::from_secs(config.contracts_ttl))
             .build();
 
         let contract_access_cache = MokaCache::builder()
@@ -121,6 +136,7 @@ impl CacheLayer {
             abi_cache,
             verification_cache,
             generic_cache,
+            contracts_cache,
             contract_access_cache,
             redis_cm,
             config,
@@ -251,6 +267,34 @@ impl CacheLayer {
             .insert(contract_id.to_string(), true)
             .await;
         true
+    }
+
+    pub async fn get_contracts(&self, key: &str) -> Option<String> {
+        if !self.config.enabled {
+            return None;
+        }
+
+        let result = self.contracts_cache.get(key).await;
+        if result.is_some() {
+            crate::metrics::CONTRACTS_CACHE_HITS.inc();
+        } else {
+            crate::metrics::CONTRACTS_CACHE_MISSES.inc();
+        }
+        result
+    }
+
+    pub async fn put_contracts(&self, key: String, value: String) {
+        if !self.config.enabled {
+            return;
+        }
+        self.contracts_cache.insert(key, value).await;
+    }
+
+    pub async fn invalidate_contracts(&self) {
+        if !self.config.enabled {
+            return;
+        }
+        self.contracts_cache.invalidate_all();
     }
 
     /// Starts an asynchronous startup warmup task querying the top 100 contracts

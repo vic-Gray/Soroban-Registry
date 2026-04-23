@@ -20,12 +20,13 @@ COPY soroban-registry/crates/ soroban-registry/crates/
 # Copy full source
 COPY backend/ backend/
 
-RUN cd backend && cargo build --release --bin api
+RUN cd backend && cargo build --release --bin api --bin indexer
 
 # ── Runtime ────────────────────────────────────────────────────────────────
 FROM gcr.io/distroless/cc-debian12:nonroot
 
 COPY --from=builder --chown=nonroot:nonroot /app/backend/target/release/api /app/api
+COPY --from=builder --chown=nonroot:nonroot /app/backend/target/release/indexer /app/indexer
 
 USER nonroot:nonroot
 EXPOSE 3001

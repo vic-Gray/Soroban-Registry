@@ -433,7 +433,12 @@ fn derive_network_status(
 }
 
 async fn probe_network_health(client: &reqwest::Client, health_url: &str) -> bool {
-    match client.get(health_url).send().await {
+    let mut request = client.get(health_url);
+    let mut headers = reqwest::header::HeaderMap::new();
+    crate::request_tracing::inject_current_trace_context(&mut headers);
+    request = request.headers(headers);
+
+    match request.send().await {
         Ok(response) => response.status().is_success(),
         Err(_) => false,
     }

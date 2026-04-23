@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use thiserror::Error;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, instrument, warn};
 
 #[derive(Error, Debug)]
 pub enum RpcError {
@@ -104,14 +104,19 @@ impl StellarRpcClient {
     }
 
     /// Fetch ledger by sequence number
+    #[instrument(skip(self), fields(rpc.endpoint = %self.endpoint, ledger.sequence = sequence))]
     pub async fn get_ledger(&self, sequence: u64) -> Result<Ledger, RpcError> {
         let url = format!("{}/ledgers/{}", self.endpoint, sequence);
         debug!("Fetching ledger from {}", url);
+
+        let mut headers = reqwest::header::HeaderMap::new();
+        crate::telemetry::inject_current_trace_context(&mut headers);
 
         let response = self
             .client
             .get(&url)
             .timeout(self.request_timeout)
+            .headers(headers)
             .send()
             .await
             .map_err(|e| {
@@ -144,6 +149,7 @@ impl StellarRpcClient {
     }
 
     /// Fetch operations for a ledger
+    #[instrument(skip(self), fields(rpc.endpoint = %self.endpoint, ledger.sequence = sequence))]
     pub async fn get_ledger_operations(&self, sequence: u64) -> Result<Vec<Operation>, RpcError> {
         let url = format!(
             "{}/ledgers/{}/operations?order=asc&limit=200",
@@ -151,10 +157,14 @@ impl StellarRpcClient {
         );
         debug!("Fetching operations for ledger {} from {}", sequence, url);
 
+        let mut headers = reqwest::header::HeaderMap::new();
+        crate::telemetry::inject_current_trace_context(&mut headers);
+
         let response = self
             .client
             .get(&url)
             .timeout(self.request_timeout)
+            .headers(headers)
             .send()
             .await
             .map_err(|e| {
@@ -191,14 +201,19 @@ impl StellarRpcClient {
     }
 
     /// Get the latest ledger
+    #[instrument(skip(self), fields(rpc.endpoint = %self.endpoint))]
     pub async fn get_latest_ledger(&self) -> Result<Ledger, RpcError> {
         let url = format!("{}/ledgers?order=desc&limit=1", self.endpoint);
         debug!("Fetching latest ledger from {}", url);
+
+        let mut headers = reqwest::header::HeaderMap::new();
+        crate::telemetry::inject_current_trace_context(&mut headers);
 
         let response = self
             .client
             .get(&url)
             .timeout(self.request_timeout)
+            .headers(headers)
             .send()
             .await
             .map_err(|e| {

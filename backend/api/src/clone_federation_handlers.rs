@@ -775,7 +775,9 @@ async fn perform_federation_sync(
     let sync_url = format!("{}/api/contracts?limit={}", base_url.trim_end_matches('/'), batch_size);
     
     let result = async {
-        let response = client.get(&sync_url).send().await?;
+        let mut headers = reqwest::header::HeaderMap::new();
+        crate::request_tracing::inject_current_trace_context(&mut headers);
+        let response = client.get(&sync_url).headers(headers).send().await?;
         if !response.status().is_success() {
             return Err(format!("Failed to fetch contracts: {}", response.status()));
         }

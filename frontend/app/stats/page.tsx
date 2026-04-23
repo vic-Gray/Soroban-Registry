@@ -12,8 +12,10 @@ import TimePeriodSelector from '@/components/stats/TimePeriodSelector';
 import StatsSkeleton from '@/components/stats/StatsSkeleton';
 import Navbar from '@/components/Navbar';
 import { AlertCircle, RefreshCw } from 'lucide-react';
+import { useTranslation } from '@/lib/i18n/client';
 
 export default function StatsPage() {
+  const { t } = useTranslation('common');
   const [period, setPeriod] = useState<TimePeriod>('30d');
   const { data, loading, error, refetch } = useStats(period);
 
@@ -25,7 +27,7 @@ export default function StatsPage() {
           <div className="bg-card p-8 rounded-2xl shadow-lg max-w-md w-full text-center border border-red-500/20">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
             <h2 className="text-xl font-bold text-foreground mb-2">
-              Failed to load statistics
+              {t('stats.failed')}
             </h2>
             <p className="text-muted-foreground mb-6">
               {error.message || 'An unexpected error occurred while fetching data.'}
@@ -35,7 +37,7 @@ export default function StatsPage() {
               className="inline-flex items-center px-4 py-2 bg-primary hover:opacity-90 text-primary-foreground font-medium rounded-lg transition-colors"
             >
               <RefreshCw className="w-4 h-4 mr-2" />
-              Try Again
+              {t('stats.tryAgain')}
             </button>
           </div>
         </div>
@@ -52,10 +54,10 @@ export default function StatsPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-foreground">
-              Registry Statistics
+              {t('stats.title')}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Overview of Soroban contract deployments and network activity
+              {t('stats.subtitle')}
             </p>
           </div>
           <TimePeriodSelector

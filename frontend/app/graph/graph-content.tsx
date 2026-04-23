@@ -9,6 +9,7 @@ import { AlertCircle, Sparkles, ExternalLink, X } from 'lucide-react';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import type { DependencyGraphHandle } from '@/components/DependencyGraph';
 import { useRouter } from 'next/navigation';
+import { useTranslation } from '@/lib/i18n/client';
 
 // Generate synthetic demo data for testing at scale
 function generateDemoData(nodeCount: number): { nodes: GraphNode[]; edges: GraphEdge[] } {
@@ -85,6 +86,7 @@ function generateDemoData(nodeCount: number): { nodes: GraphNode[]; edges: Graph
 }
 
 export function GraphContent() {
+    const { t } = useTranslation('common');
     const [networkFilter, setNetworkFilter] = useState<string>('');
     const [dependencyTypeFilter, setDependencyTypeFilter] = useState<string>('');
     const [showCyclesOnly, setShowCyclesOnly] = useState(false);
@@ -311,7 +313,7 @@ export function GraphContent() {
             <div className="flex items-center justify-center h-[calc(100vh-4rem)] bg-background">
                 <div className="text-center">
                     <div className="inline-block w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
-                    <p className="text-muted-foreground text-sm">Loading graph data…</p>
+                    <p className="text-muted-foreground text-sm">{t('graph.loading')}</p>
                 </div>
             </div>
         );
@@ -325,9 +327,9 @@ export function GraphContent() {
                         <div className="w-14 h-14 rounded-2xl bg-amber-500/10 flex items-center justify-center mx-auto mb-4">
                             <AlertCircle className="w-7 h-7 text-amber-500" />
                         </div>
-                        <h3 className="text-xl font-semibold text-foreground mb-2">Backend API unavailable</h3>
+                        <h3 className="text-xl font-semibold text-foreground mb-2">{t('graph.apiUnavailable')}</h3>
                         <p className="text-muted-foreground mb-6 text-sm leading-relaxed">
-                            Could not load contract graph data. You can still explore the visualization using Demo Mode with synthetic data.
+                            {t('graph.apiUnavailableDesc')}
                         </p>
                         <button
                             onClick={() => setDemoMode(true)}
@@ -391,87 +393,88 @@ export function GraphContent() {
                 onPanLeft={() => graphRef.current?.panLeft()}
                 onPanRight={() => graphRef.current?.panRight()}
                 networkCounts={networkCounts}
-            />
-
-            {/* Selected Node Panel */}
-            {selectedNode && (
-                <div className="absolute bottom-4 left-4 z-30 w-80 bg-card/90 backdrop-blur-xl border border-border rounded-xl shadow-lg overflow-hidden">
-                    {/* Header */}
-                    <div className="p-4 pb-3">
-                        <div className="flex items-start justify-between">
-                            <div className="flex-1 min-w-0 pr-2">
-                                <h3 className="font-semibold text-foreground text-base truncate">{selectedNode.name}</h3>
-                                <p className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">{selectedNode.contract_id}</p>
+            />            {/* Selected Node Panel */}
+            {selectedNode && (() => {
+                const node = selectedNode;
+                return (
+                    <div className="absolute bottom-4 left-4 z-30 w-80 bg-card/90 backdrop-blur-xl border border-border rounded-xl shadow-lg overflow-hidden">
+                        {/* Header */}
+                        <div className="p-4 pb-3">
+                            <div className="flex items-start justify-between">
+                                <div className="flex-1 min-w-0 pr-2">
+                                    <h3 className="font-semibold text-foreground text-base truncate">{node.name}</h3>
+                                    <p className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">{node.contract_id}</p>
+                                </div>
+                                <button
+                                    onClick={() => setSelectedNode(null)}
+                                    className="text-muted-foreground hover:text-foreground transition-colors shrink-0 p-1 rounded hover:bg-accent focus-visible:ring-1 focus-visible:ring-primary focus:outline-none"
+                                    aria-label="Close panel"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
                             </div>
-                            <button
-                                onClick={() => setSelectedNode(null)}
-                                className="text-muted-foreground hover:text-foreground transition-colors shrink-0 p-1 rounded hover:bg-accent focus-visible:ring-1 focus-visible:ring-primary focus:outline-none"
-                                aria-label="Close panel"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
                         </div>
-                    </div>
 
-                    {/* Stats row */}
-                    <div className="grid grid-cols-3 gap-px bg-border">
-                        <div className="bg-card p-2.5 text-center">
-                            <div className="text-lg font-bold text-foreground">{dependentCounts.get(selectedNode.id) || 0}</div>
-                            <div className="text-[10px] text-muted-foreground">Dependents</div>
-                        </div>
-                        <div className="bg-card p-2.5 text-center">
-                            <div className="text-lg font-bold text-foreground">{dependencyCounts.get(selectedNode.id) || 0}</div>
-                            <div className="text-[10px] text-muted-foreground">Dependencies</div>
-                        </div>
-                        <div className="bg-card p-2.5 text-center">
-                            <div className={`text-sm font-bold ${selectedNode.is_verified ? 'text-green-500' : 'text-muted-foreground'}`}>
-                                {selectedNode.is_verified ? '✓ Yes' : '—'}
+                        {/* Stats row */}
+                        <div className="grid grid-cols-3 gap-px bg-border">
+                            <div className="bg-card p-2.5 text-center">
+                                <div className="text-lg font-bold text-foreground">{dependentCounts.get(node.id) || 0}</div>
+                                <div className="text-[10px] text-muted-foreground">{t('graph.dependents')}</div>
                             </div>
-                            <div className="text-[10px] text-muted-foreground">Verified</div>
+                            <div className="bg-card p-2.5 text-center">
+                                <div className="text-lg font-bold text-foreground">{dependencyCounts.get(node.id) || 0}</div>
+                                <div className="text-[10px] text-muted-foreground">{t('graph.dependencies')}</div>
+                            </div>
+                            <div className="bg-card p-2.5 text-center">
+                                <div className={`text-sm font-bold ${node.is_verified ? 'text-green-500' : 'text-muted-foreground'}`}>
+                                    {node.is_verified ? `✓ ${t('common.yes', 'Yes')}` : '—'}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">{t('graph.verified')}</div>
+                            </div>
                         </div>
-                    </div>
 
-                    {/* Details + Tags */}
-                    <div className="p-4 pt-3 space-y-3">
-                        <div className="space-y-1.5 text-sm">
-                            <div className="flex justify-between">
-                                <span className="text-muted-foreground">Network</span>
-                                <span className={`font-medium px-2 py-0.5 rounded-full text-xs ${selectedNode.network === 'mainnet' ? 'text-green-600 bg-green-500/10' :
-                                    selectedNode.network === 'testnet' ? 'text-blue-600 bg-blue-500/10' : 'text-purple-600 bg-purple-500/10'
-                                    }`}>{selectedNode.network}</span>
-                            </div>
-                            {selectedNode.category && (
+                        {/* Details + Tags */}
+                        <div className="p-4 pt-3 space-y-3">
+                            <div className="space-y-1.5 text-sm">
                                 <div className="flex justify-between">
-                                    <span className="text-muted-foreground">Type</span>
-                                    <span className="text-foreground font-medium">{selectedNode.category}</span>
+                                    <span className="text-muted-foreground">{t('graph.network')}</span>
+                                    <span className={`font-medium px-2 py-0.5 rounded-full text-xs ${node.network === 'mainnet' ? 'text-green-600 bg-green-500/10' :
+                                        node.network === 'testnet' ? 'text-blue-600 bg-blue-500/10' : 'text-purple-600 bg-purple-500/10'
+                                        }`}>{node.network}</span>
+                                </div>
+                                {node.category && (
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">{t('graph.type')}</span>
+                                        <span className="text-foreground font-medium">{node.category}</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Tags */}
+                            {node.tags.length > 0 && (
+                                <div className="pt-2 border-t border-border">
+                                    <div className="flex flex-wrap gap-1">
+                                        {node.tags.map((tag) => (
+                                            <span key={tag} className="px-2 py-0.5 bg-primary/10 text-primary rounded-md text-[10px] font-medium">
+                                                {tag}
+                                            </span>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
+
+                            {/* Link */}
+                            <a
+                                href={`/contracts/${node.contract_id}`}
+                                className="flex items-center justify-center gap-1.5 w-full py-2 bg-primary text-primary-foreground rounded-lg text-xs font-semibold btn-glow hover:brightness-110 transition-all focus-visible:ring-1 focus-visible:ring-primary focus:outline-none"
+                            >
+                                <ExternalLink className="w-3 h-3" />
+                                {t('graph.viewDetails')}
+                            </a>
                         </div>
-
-                        {/* Tags */}
-                        {selectedNode.tags.length > 0 && (
-                            <div className="pt-2 border-t border-border">
-                                <div className="flex flex-wrap gap-1">
-                                    {selectedNode.tags.map((tag) => (
-                                        <span key={tag} className="px-2 py-0.5 bg-primary/10 text-primary rounded-md text-[10px] font-medium">
-                                            {tag}
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Link */}
-                        <a
-                            href={`/contracts/${selectedNode.contract_id}`}
-                            className="flex items-center justify-center gap-1.5 w-full py-2 bg-primary text-primary-foreground rounded-lg text-xs font-semibold btn-glow hover:brightness-110 transition-all focus-visible:ring-1 focus-visible:ring-primary focus:outline-none"
-                        >
-                            <ExternalLink className="w-3 h-3" />
-                            View Contract Details
-                        </a>
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             {/* Empty State */}
             {!demoMode && nodes.length === 0 && !isLoading && (
@@ -480,9 +483,9 @@ export function GraphContent() {
                         <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
                             <Sparkles className="w-7 h-7 text-primary" />
                         </div>
-                        <h3 className="text-xl font-semibold text-foreground mb-2">No contracts yet</h3>
+                        <h3 className="text-xl font-semibold text-foreground mb-2">{t('graph.noContracts')}</h3>
                         <p className="text-muted-foreground mb-6 text-sm leading-relaxed">
-                            Publish some contracts or enable Demo Mode to explore the graph visualization.
+                            {t('graph.noContractsDesc')}
                         </p>
                         <button
                             onClick={() => setDemoMode(true)}

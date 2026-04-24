@@ -187,6 +187,11 @@ soroban-registry migrate validate <old-id> <new-id>
 soroban-registry migrate apply <old-id> <new-id>
 soroban-registry migrate rollback <migration-id>
 soroban-registry migrate history --limit 20
+
+# Access help, examples, and documentation
+soroban-registry help publish
+soroban-registry docs online
+soroban-registry docs tutorial
 ```
 
 CLI configuration is stored at `~/.soroban-registry/config.toml`. If a legacy `~/.soroban-registry.toml` file exists, it will be migrated automatically.

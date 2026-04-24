@@ -286,6 +286,7 @@ Major command groups (defined in `src/commands.rs`):
 | `patch` | Apply upgrades to deployed contracts |
 | `fuzz` | Fuzz-testing helpers |
 | `formal-verify` | Trigger formal verification runs |
+| `docs` | Access in-app tutorial and online documentation |
 | `sla` | Service-level agreement monitoring |
 
 ---

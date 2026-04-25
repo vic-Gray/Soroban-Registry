@@ -27,9 +27,11 @@ mod package_signing;
 mod patch;
 mod profiler;
 mod release_notes;
+mod shell;
 mod sla;
 mod table_format;
 mod test_framework;
+mod track_deployment;
 mod track_deployment;
 mod webhook;
 mod wizard;
@@ -1392,20 +1394,24 @@ pub async fn handle_command(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Repl { network: shell_network } => shell::run(&cli.api_url, shell_network).await,
         _ => {
-             // ── Resolve network ───────────────────────────────────────────────────────
+            // ── Resolve network ───────────────────────────────────────────────────────
             let cfg_network = config::resolve_network(cli.network.clone())?;
             let mut net_str = cfg_network.to_string();
             if net_str == "auto" {
                 net_str = "mainnet".to_string();
             }
             let network: commands::Network = net_str.parse().unwrap();
-            
+
             dispatch_command(cli, network, cfg_network).await
         }
     }
 }
 
-pub async fn dispatch_command(cli: Cli, network: commands::Network, cfg_network: crate::config::Network) -> Result<()> {
+pub async fn dispatch_command(
+    cli: Cli,
+    network: commands::Network,
+    cfg_network: crate::config::Network,
+) -> Result<()> {
     log::debug!("Network: {:?}", network);
 
     match cli.command {

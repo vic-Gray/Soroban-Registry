@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { api, AnalyticsEvent, AnalyticsEventType, ActivityFeedResponse } from '@/lib/api';
 import { useRealtime } from '@/hooks/useRealtime';
 import { formatPublicKey, formatShortenedText } from '@/lib/utils/formatting';
@@ -16,7 +16,8 @@ import {
   Filter,
   Clock,
   Zap,
-  Tag
+  Tag,
+  type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useTranslation } from '@/lib/i18n/client';
@@ -60,7 +61,7 @@ export default function ActivityFeed() {
 
   // Handle real-time events
   useEffect(() => {
-    const handleDeployment = (event: any) => {
+    const handleDeployment = (event: RealtimeDeploymentEvent) => {
       // Convert RealtimeEvent to AnalyticsEvent
       const newEvent: AnalyticsEvent = {
         id: Math.random().toString(36).substring(7),
@@ -77,7 +78,7 @@ export default function ActivityFeed() {
       }
     };
 
-    const handleUpdate = (event: any) => {
+    const handleUpdate = (event: RealtimeUpdateEvent) => {
       const newEvent: AnalyticsEvent = {
         id: Math.random().toString(36).substring(7),
         event_type: 'contract_updated',
@@ -151,7 +152,7 @@ export default function ActivityFeed() {
           <Filter className="w-4 h-4 text-muted-foreground" />
           <select 
             value={eventType}
-            onChange={(e) => setEventType(e.target.value as any)}
+            onChange={(e) => setEventType(e.target.value as AnalyticsEventType | 'all')}
             className="bg-transparent text-sm font-medium text-foreground focus:outline-none cursor-pointer"
           >
             <option value="all">{t('activityFeed.allEvents')}</option>

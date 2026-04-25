@@ -5,6 +5,7 @@ import { Contract } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import {
   ColumnDef,
+  Header,
   flexRender,
   getCoreRowModel,
   useReactTable,
@@ -39,7 +40,15 @@ interface ContractsTableProps {
 }
 
 // Drag & Drop wrapper for column headers
-function SortableHeader({ id, header, children }: { id: string; header: any; children: React.ReactNode }) {
+function SortableHeader({
+  id,
+  header,
+  children,
+}: {
+  id: string;
+  header: Header<Contract, unknown>;
+  children: React.ReactNode;
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
 
   const style = {
@@ -138,7 +147,12 @@ export function ContractsTable({ data, sortBy, sortOrder, onSortChange }: Contra
     },
     {
       id: 'deployments',
-      accessorFn: (row: any) => typeof row.deployment_count === 'number' ? row.deployment_count : typeof row.deployments === 'number' ? row.deployments : 0,
+      accessorFn: (row: Contract & { deployment_count?: number }) =>
+        typeof row.deployment_count === 'number'
+          ? row.deployment_count
+          : typeof row.deployments === 'number'
+            ? row.deployments
+            : 0,
       header: 'Deployments',
       cell: ({ getValue }) => <div className="font-mono text-xs">{getValue() as number}</div>,
     },

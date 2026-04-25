@@ -244,7 +244,7 @@ export interface AnalyticsEvent {
   contract_id: string;
   user_address: string | null;
   network: Network | null;
-  metadata: any;
+  metadata: Record<string, unknown> | null;
   created_at: string;
 }
 

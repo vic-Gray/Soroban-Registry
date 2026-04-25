@@ -1157,11 +1157,18 @@ export const api = {
     );
   },
 
-  // Interoperability analysis endpoint
-  async getCompatibility(id: string): Promise<ContractInteroperabilityResponse> {
-    return handleApiCall<ContractInteroperabilityResponse>(
+  // Version upgrade compatibility endpoint
+  async getCompatibility(id: string): Promise<CompatibilityMatrix> {
+    return handleApiCall<CompatibilityMatrix>(
       () => fetch(`${API_URL}/api/contracts/${id}/compatibility`),
       `/api/contracts/${id}/compatibility`
+    );
+  },
+
+  async getInteroperability(id: string): Promise<ContractInteroperabilityResponse> {
+    return handleApiCall<ContractInteroperabilityResponse>(
+      () => fetch(`${API_URL}/api/contracts/${id}/interoperability`),
+      `/api/contracts/${id}/interoperability`
     );
   },
 
@@ -1638,21 +1645,26 @@ export interface ContractInteroperabilityResponse {
 // ─── Compatibility Matrix ────────────────────────────────────────────────────
 
 export interface CompatibilityEntry {
-  target_contract_id: string;
-  target_contract_stellar_id: string;
-  target_contract_name: string;
   target_version: string;
+  has_breaking_changes: boolean;
+  breaking_changes: string[];
+  breaking_change_count: number;
   stellar_version?: string;
   is_compatible: boolean;
 }
 
-/** Legacy compatibility matrix shape retained for matrix/export workflows. */
+export interface CompatibilityRow {
+  source_version: string;
+  targets: CompatibilityEntry[];
+}
+
 export interface CompatibilityMatrix {
   contract_id: string;
-  /** Keyed by source version string */
-  versions: Record<string, CompatibilityEntry[]>;
+  contract_stellar_id: string;
+  version_order: string[];
+  rows: CompatibilityRow[];
   warnings: string[];
-  total_entries: number;
+  total_pairs: number;
 }
 
 export interface AddCompatibilityRequest {

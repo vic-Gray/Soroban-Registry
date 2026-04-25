@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import React from 'react';
 import { useAnalytics } from '@/hooks/useAnalytics';
+import { useCopy } from '@/hooks/useCopy';
 import { formatContractId } from '@/lib/utils/formatting';
 import VerificationBadge from '@/components/verification/VerificationBadge';
 import HealthWidget from './HealthWidget';
@@ -25,7 +26,7 @@ interface ContractCardProps {
 export default function ContractCard({ contract }: ContractCardProps) {
   const { logEvent } = useAnalytics();
   const router = useRouter();
-  const [copied, setCopied] = React.useState(false);
+  const { copy, copied, isCopying } = useCopy();
   const [quickViewOpen, setQuickViewOpen] = React.useState(false);
 
   const networkColors = {
@@ -65,24 +66,23 @@ export default function ContractCard({ contract }: ContractCardProps) {
     });
   };
 
+  const copyAddress = async () => {
+    await copy(contract.contract_id, {
+      successEventName: 'contract_address_copied',
+      failureEventName: 'contract_address_copy_failed',
+      successMessage: 'Contract address copied',
+      failureMessage: 'Unable to copy contract address',
+      analyticsParams: {
+        contract_id: contract.id,
+        contract_name: contract.name,
+      },
+    });
+  };
+
   const handleCopyAddress = async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-
-    try {
-      await navigator.clipboard.writeText(contract.contract_id);
-      setCopied(true);
-      logEvent('contract_address_copied', {
-        contract_id: contract.id,
-        contract_name: contract.name,
-      });
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      logEvent('contract_address_copy_failed', {
-        contract_id: contract.id,
-        contract_name: contract.name,
-      });
-    }
+    await copyAddress();
   };
 
   return (
@@ -184,6 +184,14 @@ export default function ContractCard({ contract }: ContractCardProps) {
               <button
                 type="button"
                 onClick={handleCopyAddress}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void copyAddress();
+                  }
+                }}
+                disabled={isCopying}
                 className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
               >
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}

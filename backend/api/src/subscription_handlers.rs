@@ -16,10 +16,10 @@ use crate::{
     state::AppState,
 };
 use shared::{
-    ContractSubscription, ContractSubscriptionSummary, CreateWebhookRequest,
-    NotificationChannel, NotificationFrequency, NotificationQueueItem, NotificationType,
-    PaginatedResponse, SubscribeRequest, SubscriptionStatus, UpdateSubscriptionRequest,
-    UpdateUserNotificationPreferencesRequest, UserNotificationPreferences, WebhookConfiguration,
+    ContractSubscription, ContractSubscriptionSummary, CreateWebhookRequest, NotificationChannel,
+    NotificationFrequency, NotificationType, SubscribeRequest, SubscriptionStatus,
+    UpdateSubscriptionRequest, UpdateUserNotificationPreferencesRequest,
+    UserNotificationPreferences, UserSubscriptionsResponse, WebhookConfiguration,
 };
 
 // ─── Query / response types ────────────────────────────────────────────────
@@ -81,6 +81,7 @@ pub async fn subscribe_to_contract(
     auth_user: auth::AuthenticatedUser,
     Json(req): Json<SubscribeRequest>,
 ) -> ApiResult<Json<ContractSubscription>> {
+    // Verify contract exists
     let contract_exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM contracts WHERE id = $1)")
             .bind(contract_id)
@@ -99,7 +100,9 @@ pub async fn subscribe_to_contract(
         NotificationType::VerificationStatus,
         NotificationType::SecurityIssue,
     ]);
+
     let channels = req.channels.unwrap_or(vec![NotificationChannel::InApp]);
+
     let frequency = req.frequency.unwrap_or(NotificationFrequency::Realtime);
 
     let subscription = sqlx::query_as::<_, ContractSubscription>(
@@ -137,15 +140,16 @@ pub async fn unsubscribe_from_contract(
     Path(contract_id): Path<Uuid>,
     auth_user: auth::AuthenticatedUser,
 ) -> ApiResult<StatusCode> {
-    let rows_affected = sqlx::query(
-        "DELETE FROM contract_subscriptions WHERE user_id = $1 AND contract_id = $2",
-    )
-    .bind(auth_user.publisher_id)
-    .bind(contract_id)
-    .execute(&state.db)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-    .rows_affected();
+    let user_id = auth_user.publisher_id;
+
+    let rows_affected =
+        sqlx::query("DELETE FROM contract_subscriptions WHERE user_id = $1 AND contract_id = $2")
+            .bind(user_id)
+            .bind(contract_id)
+            .execute(&state.db)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+            .rows_affected();
 
     if rows_affected == 0 {
         return Err(ApiError::not_found("subscription", "Subscription not found"));
@@ -699,6 +703,7 @@ pub async fn delete_webhook(
     Path(webhook_id): Path<Uuid>,
     auth_user: auth::AuthenticatedUser,
 ) -> ApiResult<StatusCode> {
+
     let rows_affected = sqlx::query(
         "DELETE FROM webhook_configurations WHERE id = $1 AND user_id = $2",
     )
@@ -708,6 +713,18 @@ pub async fn delete_webhook(
     .await
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
     .rows_affected();
+
+    let user_id = auth_user.publisher_id;
+
+    let rows_affected =
+        sqlx::query("DELETE FROM webhook_configurations WHERE id = $1 AND user_id = $2")
+            .bind(webhook_id)
+            .bind(user_id)
+            .execute(&state.db)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+            .rows_affected();
+
 
     if rows_affected == 0 {
         return Err(ApiError::not_found("webhook", "Webhook not found"));

@@ -5,20 +5,22 @@ import { api } from '@/lib/api';
 import ContractCard from '@/components/ContractCard';
 import ContractCardSkeleton from '@/components/ContractCardSkeleton';
 import LoadingSkeleton from '@/components/LoadingSkeleton';
-import { Search, Package, CheckCircle, Users, ArrowRight, Sparkles, Shield, GitBranch, Upload, Terminal, Github, MessageCircle, BookOpen, Copy, Check, Zap } from 'lucide-react';
+import { Search, Package, CheckCircle, Users, ArrowRight, Sparkles, Shield, GitBranch, Upload, Terminal, Github, MessageCircle, BookOpen, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import Navbar from '@/components/Navbar';
 import ActivityFeed from '@/components/ActivityFeed';
+import { useCopy } from '@/hooks/useCopy';
+import CodeCopyButton from '@/components/CodeCopyButton';
 
 export default function Home() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { logEvent } = useAnalytics();
-  const [codeCopied, setCodeCopied] = useState(false);
+  const { copy, copied, isCopying } = useCopy();
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['stats'],
@@ -43,9 +45,13 @@ export default function Home() {
 
   const handleCopyCode = async () => {
     const code = `cargo install soroban-registry-cli\nsoroban-registry search token\nsoroban-registry install my-token-contract`;
-    await navigator.clipboard.writeText(code);
-    setCodeCopied(true);
-    setTimeout(() => setCodeCopied(false), 2000);
+    await copy(code, {
+      successEventName: 'landing_cli_code_copied',
+      failureEventName: 'landing_cli_code_copy_failed',
+      successMessage: 'CLI example copied',
+      failureMessage: 'Unable to copy CLI example',
+      analyticsParams: { source: 'home_cli_block' },
+    });
   };
 
   useEffect(() => {
@@ -351,14 +357,14 @@ export default function Home() {
                 <Terminal className="w-4 h-4 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground font-mono">Terminal</span>
               </div>
-              <button
-                onClick={handleCopyCode}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
-                aria-label={codeCopied ? 'Code copied' : 'Copy code'}
-              >
-                {codeCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                {codeCopied ? 'Copied' : 'Copy'}
-              </button>
+              <CodeCopyButton
+                onCopy={handleCopyCode}
+                copied={copied}
+                disabled={isCopying}
+                idleLabel="Copy"
+                copiedLabel="Copied"
+                className="border-white/10 bg-transparent text-gray-400 hover:bg-white/10 hover:text-white"
+              />
             </div>
             <div className="p-6 font-mono text-sm leading-relaxed">
               <div className="text-gray-500 mb-1"># Install the CLI</div>

@@ -30,6 +30,8 @@ export default function CodeRunner({
     await copy(code, {
       successEventName: 'contract_code_copied',
       failureEventName: 'contract_code_copy_failed',
+      successMessage: 'Code copied',
+      failureMessage: 'Unable to copy code',
       analyticsParams: {
         // Context passed from parent so copied events are tied to contract/example.
         ...copyAnalytics,

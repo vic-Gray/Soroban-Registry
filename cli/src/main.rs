@@ -34,7 +34,6 @@ mod track_deployment;
 mod webhook;
 mod wizard;
 mod shell;
-mod track_deployment;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -260,8 +259,9 @@ pub enum Commands {
     /// Launch the interactive setup wizard
     Wizard {},
 
-    /// Launch the interactive shell
-    Shell {
+    /// Enter interactive REPL mode
+    #[command(alias = "shell")]
+    Repl {
         /// Initial network
         #[arg(long)]
         network: Option<String>,
@@ -385,6 +385,12 @@ pub enum Commands {
     Config {
         #[command(subcommand)]
         action: ConfigSubcommands,
+    },
+
+    /// Inspect and modify contract state (dev/test mutation only)
+    State {
+        #[command(subcommand)]
+        action: StateSubcommands,
     },
 
     /// Run formal verification analysis against a deployed or local contract
@@ -766,6 +772,76 @@ pub enum ConfigSubcommands {
     },
 }
 
+#[derive(Debug, Subcommand)]
+pub enum StateSubcommands {
+    /// Get a single state value by key
+    Get {
+        /// Contract identifier
+        contract_id: String,
+        /// State key
+        key: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Set a state key/value (testnet and futurenet only)
+    Set {
+        /// Contract identifier
+        contract_id: String,
+        /// State key
+        key: String,
+        /// New value (JSON is parsed, otherwise stored as string)
+        value: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Dump full contract state
+    Dump {
+        /// Contract identifier
+        contract_id: String,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a state snapshot
+    Snapshot {
+        /// Contract identifier
+        contract_id: String,
+        /// Optional label for the snapshot
+        #[arg(long)]
+        label: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// List saved state snapshots
+    Snapshots {
+        /// Contract identifier
+        contract_id: String,
+        /// Maximum number of snapshots to return
+        #[arg(long, default_value = "20")]
+        limit: usize,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Browse state change history
+    History {
+        /// Contract identifier
+        contract_id: String,
+        /// Filter by key
+        #[arg(long)]
+        key: Option<String>,
+        /// Maximum number of entries to return
+        #[arg(long, default_value = "20")]
+        limit: usize,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 /// Sub-commands for the `contracts` group
 #[derive(Debug, Subcommand)]
 pub enum ContractsCommands {
@@ -1127,9 +1203,7 @@ async fn main() -> Result<()> {
 
 pub async fn handle_command(cli: Cli) -> Result<()> {
     match cli.command {
-        Commands::Shell { network: shell_network } => {
-            shell::run(&cli.api_url, shell_network).await
-        }
+        Commands::Repl { network: shell_network } => shell::run(&cli.api_url, shell_network).await,
         _ => {
              // ── Resolve network ───────────────────────────────────────────────────────
             let cfg_network = config::resolve_network(cli.network.clone())?;
@@ -1148,10 +1222,10 @@ pub async fn dispatch_command(cli: Cli, network: commands::Network, cfg_network:
     log::debug!("Network: {:?}", network);
 
     match cli.command {
-        Commands::Shell { .. } => {
+        Commands::Repl { .. } => {
             // Already handled at top level, but for completeness or nested calls:
             // We could call shell::run here again but to break recursion we don't.
-            println!("{}", "Warning: Shell already running".yellow());
+            println!("{}", "Warning: REPL already running".yellow());
             return Ok(());
         }
         Commands::Search {
@@ -1671,6 +1745,49 @@ pub async fn dispatch_command(cli: Cli, network: commands::Network, cfg_network:
                     &created_by,
                 )
                 .await?;
+            }
+        },
+        Commands::State { action } => match action {
+            StateSubcommands::Get {
+                contract_id,
+                key,
+                json,
+            } => {
+                commands::state_get(&cli.api_url, &contract_id, &key, network, json).await?;
+            }
+            StateSubcommands::Set {
+                contract_id,
+                key,
+                value,
+                json,
+            } => {
+                commands::state_set(&cli.api_url, &contract_id, &key, &value, network, json)
+                    .await?;
+            }
+            StateSubcommands::Dump { contract_id, json } => {
+                commands::state_dump(&contract_id, network, json)?;
+            }
+            StateSubcommands::Snapshot {
+                contract_id,
+                label,
+                json,
+            } => {
+                commands::state_snapshot_create(&contract_id, network, label.as_deref(), json)?;
+            }
+            StateSubcommands::Snapshots {
+                contract_id,
+                limit,
+                json,
+            } => {
+                commands::state_snapshot_list(&contract_id, network, limit, json)?;
+            }
+            StateSubcommands::History {
+                contract_id,
+                key,
+                limit,
+                json,
+            } => {
+                commands::state_history(&contract_id, network, key.as_deref(), limit, json)?;
             }
         },
         Commands::VerifyFormal {

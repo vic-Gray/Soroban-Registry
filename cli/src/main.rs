@@ -43,6 +43,7 @@ mod plugins;
 mod deploy;
 mod upgrade;
 mod compare;
+mod verification;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -558,7 +559,7 @@ pub enum Commands {
     },
 
     /// Verify a signed contract package
-    Verify {
+    VerifyPackage {
         /// Path to the package file to verify
         package: String,
 
@@ -573,6 +574,41 @@ pub enum Commands {
         /// Signature (base64, optional - will lookup from registry if not provided)
         #[arg(long)]
         signature: Option<String>,
+    },
+
+    /// Verify a contract in the registry (check status, submit for audit, or show history)
+    Verify {
+        /// Contract UUID or on-chain address
+        #[arg(required_unless_present_any = ["history", "check"])]
+        id: Option<String>,
+
+        /// Submit for verification (requires id or local project)
+        #[arg(long, short = 's')]
+        submit: bool,
+
+        /// Check current verification status
+        #[arg(long, short = 'c')]
+        check: bool,
+
+        /// Show verification history
+        #[arg(long)]
+        history: bool,
+
+        /// Verification level: basic, intermediate, advanced
+        #[arg(long, default_value = "basic")]
+        level: String,
+
+        /// Output results as JSON
+        #[arg(long, short = 'j')]
+        json: bool,
+
+        /// Path to contract project directory (defaults to current dir)
+        #[arg(long, default_value = ".")]
+        path: String,
+
+        /// Optional notes for submission
+        #[arg(long)]
+        notes: Option<String>,
     },
 
     /// Verify a contract binary against an Ed25519 signature locally
@@ -2286,14 +2322,14 @@ pub async fn dispatch_command(
             )
             .await?;
         }
-        Commands::Verify {
+        Commands::VerifyPackage {
             package,
             contract_id,
             version,
             signature,
         } => {
             log::debug!(
-                "Command: verify | package={} contract_id={}",
+                "Command: verify-package | package={} contract_id={}",
                 package,
                 contract_id
             );
@@ -2305,6 +2341,19 @@ pub async fn dispatch_command(
                 signature.as_deref(),
             )
             .await?;
+        }
+        Commands::Verify {
+            id,
+            submit,
+            check,
+            history,
+            level,
+            json,
+            path,
+            notes,
+        } => {
+            log::debug!("Command: verify | id={:?} submit={} check={}", id, submit, check);
+            verification::run(&cli.api_url, id, submit, check, history, level, json, &path, notes).await?;
         }
         Commands::VerifyContract {
             wasm_path,

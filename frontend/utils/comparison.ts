@@ -5,7 +5,11 @@ export type ComparisonMetricKey =
   | 'network'
   | 'category'
   | 'publisher'
-  | 'verification_status';
+  | 'verification_status'
+  | 'wasm_hash'
+  | 'deployment_count'
+  | 'popularity_score'
+  | 'health_score';
 
 export type CellTone = 'neutral' | 'best' | 'worst' | 'different';
 
@@ -27,6 +31,10 @@ export interface ComparableContract {
   isVerified: boolean;
   tags: string[];
   sourceCode: string;
+  wasmHash: string;
+  deploymentCount: number;
+  popularityScore: number;
+  healthScore: number;
   base?: Pick<Contract, 'contract_id' | 'network' | 'publisher_id' | 'wasm_hash' | 'updated_at'>;
 }
 
@@ -144,6 +152,10 @@ export function toComparableContract(
     isVerified,
     tags: contract.tags,
     sourceCode,
+    wasmHash: contract.wasm_hash,
+    deploymentCount: contract.deployment_count ?? 0,
+    popularityScore: contract.popularity_score ?? 0,
+    healthScore: 0,
     base: {
       contract_id: contract.contract_id,
       network: contract.network,
@@ -168,7 +180,14 @@ export function toneForMetricCell(
     return v ? 'best' : 'worst';
   }
 
-  if (metric === 'contract_id' || metric === 'network' || metric === 'category' || metric === 'publisher') {
+  if (metric === 'deployment_count' || metric === 'popularity_score' || metric === 'health_score') {
+    const nums = allValues.map(Number).filter(isFinite);
+    const max = Math.max(...nums);
+    if (max === 0) return 'neutral';
+    return Number(value) === max ? 'best' : 'different';
+  }
+
+  if (metric === 'wasm_hash') {
     return 'different';
   }
 
@@ -187,7 +206,31 @@ export function getMetricValue(contract: ComparableContract, metric: ComparisonM
       return contract.publisherId;
     case 'verification_status':
       return contract.isVerified;
+    case 'wasm_hash':
+      return contract.wasmHash;
+    case 'deployment_count':
+      return contract.deploymentCount;
+    case 'popularity_score':
+      return contract.popularityScore;
+    case 'health_score':
+      return contract.healthScore;
   }
+}
+
+/**
+ * For each contract in `contracts`, returns the ABI methods that appear in
+ * that contract but in none of the others — i.e. truly unique methods.
+ */
+export function uniqueMethodsPerContract(
+  contracts: ComparableContract[],
+): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  for (const contract of contracts) {
+    const others = contracts.filter((c) => c.id !== contract.id);
+    const otherMethods = new Set(others.flatMap((c) => c.abiMethods));
+    result[contract.id] = contract.abiMethods.filter((m) => !otherMethods.has(m));
+  }
+  return result;
 }
 
 export function diffMethodSets(base: string[], other: string[]) {

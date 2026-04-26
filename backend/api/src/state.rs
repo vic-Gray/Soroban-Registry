@@ -2,6 +2,7 @@ use crate::auth::AuthManager;
 use crate::cache::{CacheConfig, CacheLayer};
 use crate::contract_events::ContractEventHub;
 use crate::health_monitor::HealthMonitorStatus;
+use crate::rate_limit::RateLimitState;
 use crate::resource_tracking::ResourceManager;
 use shared::source_storage::SourceStorage;
 
@@ -53,6 +54,8 @@ pub struct AppState {
     pub resource_mgr: Arc<RwLock<ResourceManager>>,
     pub source_storage: Arc<SourceStorage>,
     pub event_broadcaster: broadcast::Sender<RealtimeEvent>,
+    /// Rate limiter reference — used by the /api/quota endpoint (issue #727).
+    pub rate_limit_state: Arc<RateLimitState>,
 }
 
 impl AppState {
@@ -61,6 +64,7 @@ impl AppState {
         registry: Registry,
         job_engine: Arc<soroban_batch::engine::JobEngine>,
         is_shutting_down: Arc<AtomicBool>,
+        rate_limit_state: Arc<RateLimitState>,
     ) -> Result<Self, shared::error::RegistryError> {
         let config = CacheConfig::from_env();
         let auth_manager = match AuthManager::from_env() {
@@ -96,6 +100,7 @@ impl AppState {
             resource_mgr,
             source_storage,
             event_broadcaster,
+            rate_limit_state,
         })
     }
 }

@@ -3,11 +3,12 @@ use crate::openapi;
 use crate::{
     ab_test_handlers, analytics_handlers, auth, auth_handlers, batch_verify_handlers,
     breaking_changes, canary_handlers, category_handlers, clone_federation_handlers,
-    compatibility_testing_handlers, contract_events, custom_metrics_handlers, deprecation_handlers,
-    gas_estimation_handlers, governance_handlers, handlers, interoperability_handlers,
-    metrics_handler, migration_handlers, org_handlers, patch_handlers, performance_handlers,
-    recommendation_handlers, resource_handlers, security_scan_handlers, similarity_handlers,
-    simulation_handlers, state::AppState, subscription_handlers, verification_handlers, websocket,
+    compatibility_testing_handlers, contract_events, custom_metrics_handlers, dependency_handlers,
+    deprecation_handlers, gas_estimation_handlers, governance_handlers, handlers,
+    interoperability_handlers, metrics_handler, migration_handlers, org_handlers, patch_handlers,
+    performance_handlers, quota_handlers, recommendation_handlers, resource_handlers,
+    security_scan_handlers, similarity_handlers, simulation_handlers, state::AppState,
+    subscription_handlers, verification_handlers, websocket,
 };
 
 use axum::{
@@ -193,11 +194,21 @@ pub fn contract_routes() -> Router<AppState> {
             "/api/analytics/dashboard",
             get(analytics_handlers::get_analytics_dashboard),
         )
+        // Issue #726: GET returns direct (non-recursive) deps; POST declares them
         .route(
             "/api/contracts/:id/dependencies",
-            get(crate::dependency_handlers::get_contract_dependencies)
-                // Issue #610: POST endpoint to declare/save dependencies
+            get(crate::dependency_handlers::get_direct_contract_dependencies)
                 .post(dependency_handlers::declare_contract_dependencies),
+        )
+        // Issue #726: full recursive tree capped at depth 5
+        .route(
+            "/api/contracts/:id/dependency-tree",
+            get(dependency_handlers::get_contract_dependency_tree),
+        )
+        // Issue #726: resolve all transitive dependencies
+        .route(
+            "/api/contracts/:id/resolve-dependencies",
+            post(dependency_handlers::post_resolve_dependencies),
         )
         .route(
             "/api/contracts/:id/graph",
@@ -447,6 +458,11 @@ pub fn favorite_routes() -> Router<AppState> {
             "/api/favorites/search/:id",
             delete(handlers::delete_favorite_search),
         )
+}
+
+/// Issue #727 — quota usage endpoint
+pub fn quota_routes() -> Router<AppState> {
+    Router::new().route("/api/quota", get(quota_handlers::get_quota))
 }
 
 pub fn health_routes() -> Router<AppState> {

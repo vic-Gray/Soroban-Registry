@@ -159,9 +159,27 @@ export function useComparison() {
       },
       {
         key: 'verification_status',
-        label: 'Verification status',
+        label: 'Verification',
         getDisplayValue: (c) => (c.isVerified ? 'Verified' : 'Unverified'),
         getRawValue: (c) => c.isVerified,
+      },
+      {
+        key: 'wasm_hash',
+        label: 'WASM hash',
+        getDisplayValue: (c) => c.wasmHash ? `${c.wasmHash.slice(0, 12)}…` : '—',
+        getRawValue: (c) => c.wasmHash,
+      },
+      {
+        key: 'deployment_count',
+        label: 'Deployments',
+        getDisplayValue: (c) => String(c.deploymentCount),
+        getRawValue: (c) => c.deploymentCount,
+      },
+      {
+        key: 'popularity_score',
+        label: 'Popularity score',
+        getDisplayValue: (c) => String(c.popularityScore),
+        getRawValue: (c) => c.popularityScore,
       },
     ],
     [],

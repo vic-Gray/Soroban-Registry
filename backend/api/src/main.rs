@@ -78,6 +78,7 @@ mod type_safety;
 mod validation;
 mod webhook_delivery;
 mod websocket;
+mod quota_handlers;
 mod verification_handlers;
 mod zk_proof_handlers;
 
@@ -202,7 +203,11 @@ async fn main() -> Result<()> {
     let je = job_engine.clone();
     tokio::spawn(async move { je.run_worker(job_rx).await });
 
-    let state = AppState::new(pool.clone(), registry, job_engine, is_shutting_down.clone()).await?;
+    // Issue #727: create rate limiter before AppState so it can be shared
+    let rate_limit_state = std::sync::Arc::new(RateLimitState::from_env());
+    rate_limit_state.spawn_eviction_task();
+
+    let state = AppState::new(pool.clone(), registry, job_engine, is_shutting_down.clone(), rate_limit_state.clone()).await?;
 
     // Initialize GraphQL schema
     let schema = graphql::schema::build_schema(state.clone());
@@ -227,9 +232,6 @@ async fn main() -> Result<()> {
 
     // Warm up the cache
     state.cache.clone().warm_up(pool.clone());
-
-    let rate_limit_state = RateLimitState::from_env();
-    rate_limit_state.spawn_eviction_task();
 
     let allowed_origins = std::env::var("ALLOWED_ORIGINS").unwrap_or_else(|_| {
         "http://localhost:3000,https://soroban-registry.vercel.app".to_string()
@@ -297,6 +299,7 @@ async fn main() -> Result<()> {
         .merge(routes::graph_analysis_routes())
         .merge(routes::formal_verification_routes())
         .merge(routes::verification_status_routes())
+        .merge(routes::quota_routes())
         .merge(routes::validator_routes())
         .merge(release_notes_routes::release_notes_routes())
         .route(
@@ -320,7 +323,7 @@ async fn main() -> Result<()> {
             track_in_flight_middleware,
         ))
         .layer(middleware::from_fn_with_state(
-            rate_limit_state,
+            (*rate_limit_state).clone(),
             rate_limit::rate_limit_middleware,
         ))
         .layer(cors)

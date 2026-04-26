@@ -34,7 +34,7 @@ export default function CompareContracts() {
         ssr: false,
         loading: () => (
           <div className="rounded-2xl border border-border bg-card p-6">
-            <div className="text-sm font-semibold text-foreground">Loading diff viewer…</div>
+            <div className="text-sm font-semibold text-foreground">Loading diff viewer...</div>
           </div>
         ),
       }),
@@ -50,23 +50,67 @@ export default function CompareContracts() {
   const { copy, copied, isCopying } = useCopy();
 
   const exportRowsForPdf = useMemo(
-    () =>
-      metrics.map((m) => ({
+    () => [
+      ...metrics.map((m) => ({
         label: m.label,
         values: selectedContracts.map((c) => m.getDisplayValue(c)),
       })),
+      {
+        label: 'Latest version',
+        values: selectedContracts.map((c) => c.latestVersion),
+      },
+      {
+        label: 'Version count',
+        values: selectedContracts.map((c) => String(c.versionCount)),
+      },
+      {
+        label: 'ABI methods',
+        values: selectedContracts.map((c) => String(c.abiMethods.length)),
+      },
+      {
+        label: 'Tags',
+        values: selectedContracts.map((c) => (c.tags.length > 0 ? c.tags.join(', ') : 'None')),
+      },
+    ],
     [metrics, selectedContracts],
   );
 
+  const exportMetricsForCsv = useMemo(
+    () => [
+      ...metrics.map((m) => ({
+        key: m.key,
+        label: m.label,
+        getValue: (c: (typeof selectedContracts)[number]) =>
+          m.key === 'verification_status' ? m.getDisplayValue(c) : m.getRawValue(c),
+      })),
+      {
+        key: 'latest_version' as const,
+        label: 'Latest version',
+        getValue: (c: (typeof selectedContracts)[number]) => c.latestVersion,
+      },
+      {
+        key: 'version_count' as const,
+        label: 'Version count',
+        getValue: (c: (typeof selectedContracts)[number]) => c.versionCount,
+      },
+      {
+        key: 'abi_methods' as const,
+        label: 'ABI methods',
+        getValue: (c: (typeof selectedContracts)[number]) => c.abiMethods.length,
+      },
+    ],
+    [metrics],
+  );
+
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <main className="max-w-7xl mx-auto px-4 py-10 sm:px-6 lg:px-8">
       <div className="flex flex-col gap-6">
         <div className="rounded-2xl border border-border bg-card p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h1 className="text-2xl font-bold text-foreground">Compare Contracts</h1>
               <p className="mt-2 text-sm text-muted-foreground">
-                Select 2–4 contracts, compare key attributes side-by-side, and inspect ABI/source diffs.
+                Select 2-4 contracts, compare real contract details side-by-side, and inspect ABI and source differences.
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -77,7 +121,7 @@ export default function CompareContracts() {
                   className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
                     viewMode === 'table'
                       ? 'border-primary/30 bg-primary/10 text-primary'
-                      : 'border-border bg-background text-muted-foreground hover:text-foreground hover:bg-accent'
+                      : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
                   }`}
                 >
                   <BarChart2 className="h-4 w-4" />
@@ -89,7 +133,7 @@ export default function CompareContracts() {
                   className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
                     viewMode === 'diff'
                       ? 'border-primary/30 bg-primary/10 text-primary'
-                      : 'border-border bg-background text-muted-foreground hover:text-foreground hover:bg-accent'
+                      : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
                   }`}
                 >
                   <Code2 className="h-4 w-4" />
@@ -100,21 +144,11 @@ export default function CompareContracts() {
                 <button
                   type="button"
                   disabled={!canExport}
-                  onClick={() =>
-                    exportComparisonToCsv(
-                      selectedContracts,
-                      metrics.map((m) => ({
-                        key: m.key,
-                        label: m.label,
-                        getValue: (c) =>
-                          m.key === 'verification_status' ? m.getDisplayValue(c) : m.getRawValue(c),
-                      })),
-                    )
-                  }
+                  onClick={() => exportComparisonToCsv(selectedContracts, exportMetricsForCsv)}
                   className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
                     canExport
-                      ? 'border-border bg-background text-muted-foreground hover:text-foreground hover:bg-accent'
-                      : 'border-border bg-muted text-muted-foreground cursor-not-allowed opacity-70'
+                      ? 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
+                      : 'cursor-not-allowed border-border bg-muted text-muted-foreground opacity-70'
                   }`}
                 >
                   <Download className="h-4 w-4" />
@@ -126,8 +160,8 @@ export default function CompareContracts() {
                   onClick={() => exportComparisonToPdf(selectedContracts, exportRowsForPdf)}
                   className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
                     canExport
-                      ? 'border-border bg-background text-muted-foreground hover:text-foreground hover:bg-accent'
-                      : 'border-border bg-muted text-muted-foreground cursor-not-allowed opacity-70'
+                      ? 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
+                      : 'cursor-not-allowed border-border bg-muted text-muted-foreground opacity-70'
                   }`}
                 >
                   <Download className="h-4 w-4" />
@@ -137,7 +171,7 @@ export default function CompareContracts() {
                   type="button"
                   onClick={() => copy(window.location.href, { successEventName: 'comparison_link_copied' })}
                   disabled={isCopying}
-                  className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
                 >
                   <Link2 className="h-4 w-4" />
                   {copied ? 'Copied' : 'Share'}
@@ -170,8 +204,47 @@ export default function CompareContracts() {
 
             {selectedContracts.length > 0 && (
               <>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <div className="rounded-2xl border border-border bg-card p-5">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Version comparison</div>
+                    <div className="mt-3 space-y-2">
+                      {selectedContracts.map((contract) => (
+                        <div key={contract.id} className="flex items-center justify-between gap-3 rounded-xl bg-accent/40 px-3 py-2 text-sm">
+                          <span className="truncate text-foreground">{contract.name}</span>
+                          <span className="shrink-0 font-mono text-muted-foreground">
+                            {contract.latestVersion} ({contract.versionCount})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-card p-5">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">ABI coverage</div>
+                    <div className="mt-3 space-y-2">
+                      {selectedContracts.map((contract) => (
+                        <div key={contract.id} className="flex items-center justify-between gap-3 rounded-xl bg-accent/40 px-3 py-2 text-sm">
+                          <span className="truncate text-foreground">{contract.name}</span>
+                          <span className="shrink-0 font-semibold text-foreground">{contract.abiMethods.length} methods</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-card p-5">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tag summary</div>
+                    <div className="mt-3 space-y-2">
+                      {selectedContracts.map((contract) => (
+                        <div key={contract.id} className="rounded-xl bg-accent/40 px-3 py-2 text-sm">
+                          <div className="truncate font-medium text-foreground">{contract.name}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {contract.tags.length > 0 ? contract.tags.join(', ') : 'No tags'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
                 <ComparisonTable contracts={selectedContracts} metrics={metrics} tones={metricTones} />
-                <div className="lg:hidden grid grid-cols-1 gap-4">
+                <div className="grid grid-cols-1 gap-4 lg:hidden">
                   {selectedContracts.map((c) => (
                     <MobileComparisonCard key={c.id} contract={c} metrics={metrics} tones={metricTones} />
                   ))}
@@ -186,4 +259,3 @@ export default function CompareContracts() {
     </main>
   );
 }
-

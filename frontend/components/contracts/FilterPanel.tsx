@@ -1,50 +1,76 @@
-import type { ContractSearchParams } from '@/lib/api';
+import React from 'react';
 import { Check, ChevronDown, RotateCcw } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
 
-type NetworkFilter = NonNullable<ContractSearchParams['network']>;
-type CategoryOption = {
+interface FilterOption {
   value: string;
   label: string;
-  count: number;
-};
+  count?: number;
+}
+
+interface MultiSelectDropdownProps {
+  label: string;
+  placeholder: string;
+  options: FilterOption[];
+  selectedValues: string[];
+  onToggle: (value: string) => void;
+  onClear: () => void;
+}
 
 interface FilterPanelProps {
-  categories: CategoryOption[];
+  categories: FilterOption[];
   selectedCategories: string[];
   onToggleCategory: (value: string) => void;
   onClearCategories: () => void;
+  networks: FilterOption[];
+  selectedNetworks: string[];
+  onToggleNetwork: (value: string) => void;
+  onClearNetworks: () => void;
   languages: string[];
   selectedLanguages: string[];
   onToggleLanguage: (value: string) => void;
-  networks: NetworkFilter[];
-  selectedNetworks: NetworkFilter[];
-  onToggleNetwork: (value: NetworkFilter) => void;
   author: string;
   onAuthorChange: (value: string) => void;
   verifiedOnly: boolean;
   onVerifiedChange: (value: boolean) => void;
-  dateFrom?: string;
-  dateTo?: string;
-  onDateRangeChange?: (from: string, to: string) => void;
-  activeCounts?: Record<string, number>;
-  onClearAll?: () => void;
+  activeFilterCount: number;
+  onResetAll: () => void;
 }
 
-function CategoryMultiSelect({
-  categories,
-  selectedCategories,
-  onToggleCategory,
-  onClearCategories,
-}: Pick<
-  FilterPanelProps,
-  'categories' | 'selectedCategories' | 'onToggleCategory' | 'onClearCategories'
->) {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
+function getSummaryText(
+  selectedValues: string[],
+  options: FilterOption[],
+  placeholder: string,
+) {
+  if (selectedValues.length === 0) {
+    return placeholder;
+  }
 
-  useEffect(() => {
-    if (!isOpen) return;
+  const selectedLabels = options
+    .filter((option) => selectedValues.includes(option.value))
+    .map((option) => option.label);
+
+  if (selectedLabels.length <= 2) {
+    return selectedLabels.join(', ');
+  }
+
+  return `${selectedLabels.slice(0, 2).join(', ')} +${selectedLabels.length - 2}`;
+}
+
+function MultiSelectDropdown({
+  label,
+  placeholder,
+  options,
+  selectedValues,
+  onToggle,
+  onClear,
+}: MultiSelectDropdownProps) {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
 
     const handlePointerDown = (event: MouseEvent) => {
       if (!containerRef.current?.contains(event.target as Node)) {
@@ -52,50 +78,30 @@ function CategoryMultiSelect({
       }
     };
 
-    const handleEscape = (event: KeyboardEvent) => {
+    const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsOpen(false);
       }
     };
 
     document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleEscape);
+    document.addEventListener('keydown', handleKeyDown);
+
     return () => {
       document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isOpen]);
 
-  const selectedLabels = useMemo(
-    () =>
-      categories
-        .filter((option) => selectedCategories.includes(option.value))
-        .map((option) => option.label),
-    [categories, selectedCategories],
-  );
-
-  const triggerLabel =
-    selectedLabels.length === 0
-      ? 'Choose categories'
-      : selectedLabels.length <= 2
-        ? selectedLabels.join(', ')
-        : `${selectedLabels.length} categories selected`;
-
   return (
-    <div className="space-y-3" ref={containerRef}>
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          Category
-        </p>
-        <button
-          type="button"
-          onClick={onClearCategories}
-          disabled={selectedCategories.length === 0}
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <RotateCcw className="w-3 h-3" />
-          Reset
-        </button>
+    <div className="space-y-2" ref={containerRef}>
+      <div className="flex items-center justify-between">
+        <label className="text-sm font-medium text-foreground">{label}</label>
+        {selectedValues.length > 0 && (
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+            {selectedValues.length} selected
+          </span>
+        )}
       </div>
 
       <div className="relative">
@@ -103,77 +109,52 @@ function CategoryMultiSelect({
           type="button"
           onClick={() => setIsOpen((current) => !current)}
           aria-expanded={isOpen}
-          className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5 text-left text-sm text-foreground transition-all hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="flex w-full items-center justify-between rounded-xl border border-border bg-background px-3 py-2.5 text-left text-sm text-foreground shadow-sm transition-colors hover:border-primary/40"
         >
-          <span className={selectedCategories.length === 0 ? 'text-muted-foreground' : ''}>
-            {triggerLabel}
+          <span className={selectedValues.length > 0 ? 'text-foreground' : 'text-muted-foreground'}>
+            {getSummaryText(selectedValues, options, placeholder)}
           </span>
           <ChevronDown
-            className={`h-4 w-4 text-muted-foreground transition-transform ${
-              isOpen ? 'rotate-180' : ''
-            }`}
+            className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`}
           />
         </button>
 
-        {selectedCategories.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {categories
-              .filter((option) => selectedCategories.includes(option.value))
-              .map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => onToggleCategory(option.value)}
-                  className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
-                >
-                  {option.label}
-                  <Check className="h-3 w-3" />
-                </button>
-              ))}
-          </div>
-        )}
-
         {isOpen && (
           <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-border bg-popover shadow-xl">
-            <div className="max-h-72 overflow-y-auto p-2">
-              {categories.map((option) => {
-                const isSelected = selectedCategories.includes(option.value);
+            <div className="max-h-64 overflow-y-auto p-2">
+              {options.map((option) => {
+                const isSelected = selectedValues.includes(option.value);
+
                 return (
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => onToggleCategory(option.value)}
-                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm transition-all ${
-                      isSelected
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-foreground hover:bg-accent'
+                    onClick={() => onToggle(option.value)}
+                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm transition-colors ${
+                      isSelected ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                     }`}
                   >
-                    <span className="flex items-center gap-2">
+                    <div className="flex items-center gap-2">
                       <span
                         className={`flex h-4 w-4 items-center justify-center rounded border ${
                           isSelected
                             ? 'border-primary bg-primary text-primary-foreground'
-                            : 'border-border'
+                            : 'border-input bg-background'
                         }`}
                       >
-                        {isSelected ? <Check className="h-3 w-3" /> : null}
+                        {isSelected && <Check className="h-3 w-3" />}
                       </span>
                       <span>{option.label}</span>
-                    </span>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                      {option.count}
-                    </span>
+                    </div>
+                    {option.count !== undefined && (
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                        {option.count}
+                      </span>
+                    )}
                   </button>
                 );
               })}
             </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function CheckboxGroup({
   title,
@@ -198,8 +179,10 @@ function CheckboxGroup({
             <button
               key={option}
               type="button"
+              role="checkbox"
+              aria-checked={isSelected}
               onClick={() => onToggle(option)}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm capitalize transition-all ${
                 isSelected
                   ? 'bg-primary/10 text-primary font-medium'
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent'
@@ -211,15 +194,7 @@ function CheckboxGroup({
                 }`}
               >
                 {isSelected && (
-                  <svg
-                    className="w-3 h-3 text-primary-foreground"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={3}
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
+                  <Check className="w-3 h-3 text-primary-foreground" />
                 )}
               </div>
               {option}
@@ -236,90 +211,69 @@ export function FilterPanel({
   selectedCategories,
   onToggleCategory,
   onClearCategories,
-  languages,
-  selectedLanguages,
-  onToggleLanguage,
   networks,
   selectedNetworks,
   onToggleNetwork,
+  onClearNetworks,
+  languages,
+  selectedLanguages,
+  onToggleLanguage,
   author,
   onAuthorChange,
   verifiedOnly,
   onVerifiedChange,
+  activeFilterCount,
+  onResetAll,
 }: FilterPanelProps) {
-  return (
-    <div className="space-y-5">
-      <CategoryMultiSelect
-        categories={categories}
-        selectedCategories={selectedCategories}
-        onToggleCategory={onToggleCategory}
-        onClearCategories={onClearCategories}
-      />
+  const [expandedSections, setExpandedSections] = React.useState<Record<string, boolean>>({
+    categories: true,
+    networks: true,
+    languages: true,
+    other: true,
+  });
+
+  const toggleSection = (section: string) => {
+    setExpandedSections((current) => ({
+      ...current,
+      [section]: !current[section],
+    }));
+  };
 
       <CheckboxGroup
-        title="Language"
-        options={languages}
-        selected={selectedLanguages}
-        onToggle={onToggleLanguage}
+        title="Network"
+        options={networks}
+        selected={selectedNetworks}
+        onToggle={onToggleNetwork}
       />
 
-      <div>
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-          Network
-        </p>
-        <div className="space-y-1.5">
-          {networks.map((network) => {
-            const isSelected = selectedNetworks.includes(network);
-            return (
-              <button
-                key={network}
-                type="button"
-                onClick={() => onToggleNetwork(network)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm capitalize transition-all ${
-                  isSelected
-                    ? 'bg-primary/10 text-primary font-medium'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                }`}
-              >
-                <div
-                  className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${
-                    isSelected ? 'bg-primary border-primary' : 'border-border'
-                  }`}
-                >
-                  {isSelected && (
-                    <svg
-                      className="w-3 h-3 text-primary-foreground"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={3}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </div>
-                {network}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <div className="space-y-3">
+        <button
+          type="button"
+          onClick={() => toggleSection('categories')}
+          className="flex w-full items-center justify-between text-sm font-medium text-foreground hover:text-primary transition-colors"
+        >
+          <span>Categories</span>
+          <ChevronDown
+            className={`h-4 w-4 text-muted-foreground transition-transform ${expandedSections.categories ? 'rotate-180' : ''}`}
+          />
+        </button>
 
-      <div>
-        <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-          Author
-        </label>
-        <input
-          type="text"
-          value={author}
-          onChange={(e) => onAuthorChange(e.target.value)}
-          placeholder="Publisher or address"
-          className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-        />
+        {expandedSections.categories && (
+          <MultiSelectDropdown
+            label="Category filters"
+            placeholder="Choose categories"
+            options={categories}
+            selectedValues={selectedCategories}
+            onToggle={onToggleCategory}
+            onClear={onClearCategories}
+          />
+        )}
       </div>
 
       <button
         type="button"
+        role="checkbox"
+        aria-checked={verifiedOnly}
         onClick={() => onVerifiedChange(!verifiedOnly)}
         className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all ${
           verifiedOnly
@@ -333,15 +287,7 @@ export function FilterPanel({
           }`}
         >
           {verifiedOnly && (
-            <svg
-              className="w-3 h-3 text-white"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={3}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
+            <Check className="w-3 h-3 text-white" />
           )}
         </div>
         Verified only

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { ContractVersion } from '@/lib/api';
 import { useSearchParams } from 'next/navigation';
 import { api, type Contract } from '@/lib/api';
 import { toComparableContract, getMetricValue, toneForMetricCell, type ComparableContract, type ComparisonMetricKey, type CellTone } from '@/utils/comparison';
@@ -11,7 +12,7 @@ type ComparisonMetric = {
   key: ComparisonMetricKey;
   label: string;
   getDisplayValue: (c: ComparableContract) => string;
-  getRawValue: (c: ComparableContract) => number | boolean;
+  getRawValue: (c: ComparableContract) => string | number | boolean;
 };
 
 type MetricTones = Record<ComparisonMetricKey, Record<string, CellTone>>;
@@ -68,7 +69,37 @@ export function useComparison() {
       const results = await Promise.all(
         ids.map(async (id) => {
           const c = await api.getContract(id);
-          return c;
+          const versions = await api.getContractVersions(id).catch(() => [] as ContractVersion[]);
+          const latestVersion =
+            [...versions].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] ?? null;
+
+          const abiResponse =
+            latestVersion != null
+              ? await api.getContractAbi(id, latestVersion.version).catch(() => ({ abi: null }))
+              : { abi: null };
+
+          let sourceCode = '';
+          if (latestVersion?.source_url) {
+            try {
+              const normalizedSourceUrl = latestVersion.source_url.replace(
+                /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/,
+                'https://raw.githubusercontent.com/$1/$2/$3/$4',
+              );
+              const res = await fetch(normalizedSourceUrl);
+              if (res.ok) {
+                sourceCode = await res.text();
+              }
+            } catch {
+              sourceCode = '';
+            }
+          }
+
+          return {
+            contract: c,
+            versions,
+            abi: abiResponse.abi,
+            sourceCode,
+          };
         }),
       );
       return results;
@@ -80,8 +111,15 @@ export function useComparison() {
   const selectedContracts = useMemo<ComparableContract[]>(() => {
     const contracts = selectedContractsQuery.data ?? [];
     const byId = new Map<string, ComparableContract>();
-    for (const c of contracts) {
-      byId.set(c.id, toComparableContract(c));
+    for (const item of contracts) {
+      byId.set(
+        item.contract.id,
+        toComparableContract(item.contract, {
+          versions: item.versions,
+          abi: item.abi,
+          sourceCode: item.sourceCode,
+        }),
+      );
     }
     return selectedIds
       .map((id) => byId.get(id))
@@ -96,22 +134,28 @@ export function useComparison() {
   const metrics = useMemo<ComparisonMetric[]>(
     () => [
       {
-        key: 'abi_method_count',
-        label: 'ABI method count',
-        getDisplayValue: (c) => String(c.abiMethods.length),
-        getRawValue: (c) => c.abiMethods.length,
+        key: 'contract_id',
+        label: 'Contract ID',
+        getDisplayValue: (c) => c.contractId,
+        getRawValue: (c) => c.contractId,
       },
       {
-        key: 'gas_estimate',
-        label: 'Gas estimate',
-        getDisplayValue: (c) => `${c.gasEstimate.toLocaleString()} units`,
-        getRawValue: (c) => c.gasEstimate,
+        key: 'network',
+        label: 'Network',
+        getDisplayValue: (c) => c.network,
+        getRawValue: (c) => c.network,
       },
       {
-        key: 'deployment_count',
-        label: 'Deployment count',
-        getDisplayValue: (c) => c.deploymentCount.toLocaleString(),
-        getRawValue: (c) => c.deploymentCount,
+        key: 'category',
+        label: 'Category',
+        getDisplayValue: (c) => c.category,
+        getRawValue: (c) => c.category,
+      },
+      {
+        key: 'publisher',
+        label: 'Publisher',
+        getDisplayValue: (c) => c.publisherId,
+        getRawValue: (c) => c.publisherId,
       },
       {
         key: 'verification_status',

@@ -85,8 +85,9 @@ impl DatabaseWriter {
                 network,
                 is_verified,
                 created_at,
-                updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7::network_type, $8, $9, $10)
+                updated_at,
+                deployed_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7::network_type, $8, $9, $10, $11)
         "#,
         )
         .bind(contract_id)
@@ -99,6 +100,7 @@ impl DatabaseWriter {
         .bind(false)
         .bind(now)
         .bind(now)
+        .bind(chrono::DateTime::parse_from_rfc3339(&deployment.deployed_at).map(|dt| dt.with_timezone(&chrono::Utc)).unwrap_or(now))
         .execute(&self.pool)
         .await
         .map_err(|e| {
@@ -205,7 +207,7 @@ impl DatabaseWriter {
         let mut query_builder: QueryBuilder<sqlx::Postgres> = QueryBuilder::new(
             "INSERT INTO contracts \
              (id, contract_id, wasm_hash, name, slug, publisher_id, network, \
-              is_verified, created_at, updated_at) ",
+              is_verified, created_at, updated_at, deployed_at) ",
         );
 
         query_builder.push_values(deployments.iter(), |mut b, deployment| {
@@ -221,7 +223,8 @@ impl DatabaseWriter {
                 .push_bind(network_str)
                 .push_bind(false)
                 .push_bind(now)
-                .push_bind(now);
+                .push_bind(now)
+                .push_bind(chrono::DateTime::parse_from_rfc3339(&deployment.deployed_at).map(|dt| dt.with_timezone(&chrono::Utc)).unwrap_or(now));
         });
 
         query_builder.push(" ON CONFLICT (contract_id, network) DO NOTHING RETURNING contract_id");
@@ -392,7 +395,7 @@ impl DatabaseWriter {
             r#"
             SELECT
                 id, contract_id, wasm_hash, name, description,
-                publisher_id, network, is_verified, verification_status, verified_by, verification_notes, verified_at, category, tags,
+                publisher_id, network, is_verified, verification_status, verified_by, verification_notes, verified_at, deployed_at, category, tags,
                 created_at, updated_at
             FROM contracts
             WHERE network = $1::network_type AND is_verified = false

@@ -1,12 +1,13 @@
 import type { Contract } from '@/lib/api';
 
 export type ComparisonMetricKey =
-  | 'abi_method_count'
-  | 'gas_estimate'
-  | 'deployment_count'
+  | 'contract_id'
+  | 'network'
+  | 'category'
+  | 'publisher'
   | 'verification_status';
 
-export type CellTone = 'neutral' | 'best' | 'worst';
+export type CellTone = 'neutral' | 'best' | 'worst' | 'different';
 
 export type DiffLine =
   | { type: 'context'; value: string }
@@ -16,59 +17,17 @@ export type DiffLine =
 export interface ComparableContract {
   id: string;
   name: string;
+  contractId: string;
+  network: string;
+  category: string;
+  publisherId: string;
+  latestVersion: string;
+  versionCount: number;
   abiMethods: string[];
-  gasEstimate: number;
-  deploymentCount: number;
   isVerified: boolean;
+  tags: string[];
   sourceCode: string;
   base?: Pick<Contract, 'contract_id' | 'network' | 'publisher_id' | 'wasm_hash' | 'updated_at'>;
-}
-
-function hashStringToUint32(input: string) {
-  let h = 2166136261;
-  for (let i = 0; i < input.length; i += 1) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function seededInt(seed: number, min: number, max: number) {
-  const x = Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b) >>> 0;
-  const n = x / 0xffffffff;
-  return Math.floor(min + n * (max - min + 1));
-}
-
-function seededChoice<T>(seed: number, items: T[]) {
-  if (items.length === 0) {
-    throw new Error('seededChoice: empty items');
-  }
-  return items[seededInt(seed, 0, items.length - 1)];
-}
-
-function buildMockAbiMethods(seed: number) {
-  const verbs = ['get', 'set', 'mint', 'burn', 'transfer', 'swap', 'quote', 'deposit', 'withdraw', 'claim'];
-  const nouns = ['balance', 'allowance', 'owner', 'admin', 'price', 'pool', 'token', 'reward', 'position', 'config'];
-  const count = seededInt(seed ^ 0x1234, 6, 22);
-  const methods = new Set<string>();
-  for (let i = 0; i < count; i += 1) {
-    const verb = seededChoice(seed + i * 31, verbs);
-    const noun = seededChoice(seed + i * 97, nouns);
-    const suffix = seededInt(seed + i * 13, 0, 3);
-    const name = suffix === 0 ? `${verb}_${noun}` : `${verb}_${noun}_${suffix}`;
-    methods.add(name);
-  }
-  return [...methods].sort((a, b) => a.localeCompare(b));
-}
-
-function buildMockSourceCode(seed: number, name: string, isVerified: boolean) {
-  const header = `// ${name}\n// Generated preview source (mock)\n`;
-  const verifiedLine = isVerified ? 'const VERIFIED: bool = true;\n' : 'const VERIFIED: bool = false;\n';
-  const functions = buildMockAbiMethods(seed)
-    .slice(0, 10)
-    .map((m) => `pub fn ${m}(env: Env) -> i128 {\n    env.ledger().sequence() as i128\n}\n`)
-    .join('\n');
-  return `${header}\nuse soroban_sdk::{contract, contractimpl, Env};\n\n${verifiedLine}\n#[contract]\npub struct Contract;\n\n#[contractimpl]\nimpl Contract {\n${indentBlock(functions.trimEnd(), 2)}\n}\n`;
 }
 
 function indentBlock(text: string, spaces: number) {
@@ -79,21 +38,111 @@ function indentBlock(text: string, spaces: number) {
     .join('\n');
 }
 
-export function toComparableContract(contract: Contract): ComparableContract {
-  const seed = hashStringToUint32(`${contract.id}:${contract.contract_id}:${contract.wasm_hash}`);
+function latestVersionFromVersions(versions: Array<{ version: string; created_at: string }>) {
+  if (versions.length === 0) return null;
+  return [...versions].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] ?? null;
+}
+
+function collectStringValues(input: unknown, sink: string[]) {
+  if (typeof input === 'string') {
+    sink.push(input);
+    return;
+  }
+  if (Array.isArray(input)) {
+    for (const item of input) collectStringValues(item, sink);
+    return;
+  }
+  if (input && typeof input === 'object') {
+    for (const value of Object.values(input)) collectStringValues(value, sink);
+  }
+}
+
+export function extractAbiMethods(abi: unknown): string[] {
+  const methods = new Set<string>();
+
+  const visit = (node: unknown) => {
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+
+    const record = node as Record<string, unknown>;
+    const directCandidates = [
+      record.name,
+      record.method,
+      record.function,
+      record.fn,
+      record.symbol,
+      record.export,
+    ];
+
+    for (const candidate of directCandidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        methods.add(candidate.trim());
+      }
+    }
+
+    for (const [key, value] of Object.entries(record)) {
+      if (['functions', 'methods', 'entries'].includes(key) && Array.isArray(value)) {
+        for (const item of value) visit(item);
+        continue;
+      }
+
+      if (['name_scval', 'nameScVal', 'identifier'].includes(key)) {
+        const values: string[] = [];
+        collectStringValues(value, values);
+        for (const v of values) {
+          if (v.trim()) methods.add(v.trim());
+        }
+      }
+    }
+  };
+
+  visit(abi);
+  return [...methods].sort((a, b) => a.localeCompare(b));
+}
+
+function buildFallbackSourceCode(name: string, isVerified: boolean, abiMethods: string[], latestVersion: string) {
+  const versionLine = latestVersion ? `const VERSION: &str = "${latestVersion}";\n` : '';
+  const verifiedLine = isVerified ? 'const VERIFIED: bool = true;\n' : 'const VERIFIED: bool = false;\n';
+  const functions = abiMethods
+    .slice(0, 12)
+    .map((m) => `pub fn ${m}(env: Env) -> i128 {\n    env.ledger().sequence() as i128\n}\n`)
+    .join('\n');
+
+  return `// ${name}\n// Generated comparison fallback source\n\nuse soroban_sdk::{contract, contractimpl, Env};\n\n${versionLine}${verifiedLine}\n#[contract]\npub struct Contract;\n\n#[contractimpl]\nimpl Contract {\n${indentBlock(functions.trimEnd() || '  // No ABI methods available', 2)}\n}\n`;
+}
+
+export function toComparableContract(
+  contract: Contract,
+  options?: {
+    versions?: Array<{ version: string; created_at: string }>;
+    abi?: unknown;
+    sourceCode?: string;
+  },
+): ComparableContract {
   const isVerified = Boolean(contract.is_verified);
-  const abiMethods = buildMockAbiMethods(seed);
-  const gasEstimate = seededInt(seed ^ 0x55aa, 12000, 95000);
-  const deploymentCount = seededInt(seed ^ 0xaa55, 1, 250);
-  const sourceCode = buildMockSourceCode(seed, contract.name, isVerified);
+  const versions = options?.versions ?? [];
+  const latestVersion = latestVersionFromVersions(versions)?.version ?? 'Unversioned';
+  const abiMethods = extractAbiMethods(options?.abi);
+  const sourceCode =
+    options?.sourceCode && options.sourceCode.trim().length > 0
+      ? options.sourceCode
+      : buildFallbackSourceCode(contract.name, isVerified, abiMethods, latestVersion);
 
   return {
     id: contract.id,
     name: contract.name,
+    contractId: contract.contract_id,
+    network: contract.network,
+    category: contract.category || 'Uncategorized',
+    publisherId: contract.publisher_id,
+    latestVersion,
+    versionCount: versions.length,
     abiMethods,
-    gasEstimate,
-    deploymentCount,
     isVerified,
+    tags: contract.tags,
     sourceCode,
     base: {
       contract_id: contract.contract_id,
@@ -107,8 +156,8 @@ export function toComparableContract(contract: Contract): ComparableContract {
 
 export function toneForMetricCell(
   metric: ComparisonMetricKey,
-  value: number | boolean,
-  allValues: Array<number | boolean>,
+  value: string | number | boolean,
+  allValues: Array<string | number | boolean>,
 ): CellTone {
   const isAllEqual =
     allValues.length > 0 && allValues.every((v) => v === allValues[0]);
@@ -119,28 +168,23 @@ export function toneForMetricCell(
     return v ? 'best' : 'worst';
   }
 
-  const nums = allValues.map((v) => Number(v));
-  const n = Number(value);
-  const min = Math.min(...nums);
-  const max = Math.max(...nums);
+  if (metric === 'contract_id' || metric === 'network' || metric === 'category' || metric === 'publisher') {
+    return 'different';
+  }
 
-  const higherIsBetter = metric === 'deployment_count' || metric === 'abi_method_count';
-  const best = higherIsBetter ? max : min;
-  const worst = higherIsBetter ? min : max;
-
-  if (n === best && n !== worst) return 'best';
-  if (n === worst && n !== best) return 'worst';
-  return 'neutral';
+  return 'different';
 }
 
-export function getMetricValue(contract: ComparableContract, metric: ComparisonMetricKey): number | boolean {
+export function getMetricValue(contract: ComparableContract, metric: ComparisonMetricKey): string | number | boolean {
   switch (metric) {
-    case 'abi_method_count':
-      return contract.abiMethods.length;
-    case 'gas_estimate':
-      return contract.gasEstimate;
-    case 'deployment_count':
-      return contract.deploymentCount;
+    case 'contract_id':
+      return contract.contractId;
+    case 'network':
+      return contract.network;
+    case 'category':
+      return contract.category;
+    case 'publisher':
+      return contract.publisherId;
     case 'verification_status':
       return contract.isVerified;
   }

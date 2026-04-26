@@ -154,13 +154,23 @@ Access the web application at `http://localhost:3000` to:
 cargo install --path cli
 
 # Search for contracts
-soroban-registry search "token"
+soroban-registry search "token" --category defi --verified-only --network testnet,futurenet
+
+# Search and get JSON output
+soroban-registry search "factory" --json > results.json
 
 # Get contract details
 soroban-registry info <contract-id>
 
 # Publish a contract
 soroban-registry publish --contract-path ./my-contract
+
+# Scaffold a new contract project using templates
+soroban-registry scaffold init my-contract
+
+# Clone specific templates (e.g. token) with arguments
+soroban-registry scaffold list
+soroban-registry scaffold clone token my-token --symbol TKN --initial-supply 1000000
 
 # Verify a contract
 soroban-registry verify <contract-id> --source ./src
@@ -180,6 +190,11 @@ soroban-registry migrate validate <old-id> <new-id>
 soroban-registry migrate apply <old-id> <new-id>
 soroban-registry migrate rollback <migration-id>
 soroban-registry migrate history --limit 20
+
+# Access help, examples, and documentation
+soroban-registry help publish
+soroban-registry docs online
+soroban-registry docs tutorial
 ```
 
 CLI configuration is stored at `~/.soroban-registry/config.toml`. If a legacy `~/.soroban-registry.toml` file exists, it will be migrated automatically.

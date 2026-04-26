@@ -277,6 +277,7 @@ Major command groups (defined in `src/commands.rs`):
 | Command | Description |
 |---|---|
 | `publish` | Publish a new contract or version |
+| `scaffold` / `template` | Scaffold a new contract project from blueprints and templates |
 | `verify` | Submit source code for verification |
 | `search` / `info` | Query the registry |
 | `import` / `export` | Bulk contract data management |
@@ -285,6 +286,7 @@ Major command groups (defined in `src/commands.rs`):
 | `patch` | Apply upgrades to deployed contracts |
 | `fuzz` | Fuzz-testing helpers |
 | `formal-verify` | Trigger formal verification runs |
+| `docs` | Access in-app tutorial and online documentation |
 | `sla` | Service-level agreement monitoring |
 
 ---

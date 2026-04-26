@@ -5,14 +5,10 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type {
   Network,
-  DependencyTreeNode,
-  GraphNode,
-  GraphEdge,
   ContractVersion,
   ContractChangelogEntry,
 } from "@/lib/api";
 import ExampleGallery from "@/components/ExampleGallery";
-import DependencyGraph from "@/components/DependencyGraph";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -43,6 +39,7 @@ import DeprecationBanner from "@/components/DeprecationBanner";
 import ReleaseNotesPanel from "@/components/ReleaseNotesPanel";
 import ContractComments from "@/components/ContractComments";
 import { useContractAutoRefresh } from "@/hooks/useContractAutoRefresh";
+import { ContractTimeline } from "@/components/contracts/contract-timeline";
 import ContractInteractionFlow from "@/components/contracts/ContractInteractionFlow";
 import ContractAbiMethodExplorer from "@/components/contracts/ContractAbiMethodExplorer";
 
@@ -66,46 +63,6 @@ const maintenanceStatus: { is_maintenance: boolean; current_window: null } = {
   is_maintenance: false,
   current_window: null,
 };
-
-/** Flatten a recursive DependencyTreeNode[] into GraphNode[] + GraphEdge[]. */
-function flattenDependencyTree(
-  tree: DependencyTreeNode | DependencyTreeNode[],
-  network: Network = "mainnet"
-): { nodes: GraphNode[]; edges: GraphEdge[] } {
-  const nodes: GraphNode[] = [];
-  const edges: GraphEdge[] = [];
-  const seen = new Set<string>();
-
-  function walk(node: DependencyTreeNode, parentId?: string) {
-    if (!seen.has(node.contract_id)) {
-      seen.add(node.contract_id);
-      nodes.push({
-        id: node.contract_id,
-        contract_id: node.contract_id,
-        name: node.name,
-        network,
-        is_verified: false,
-        tags: [],
-      });
-    }
-    if (parentId) {
-      edges.push({
-        source: parentId,
-        target: node.contract_id,
-        dependency_type: node.constraint_to_parent || "dependency",
-      });
-    }
-    for (const child of node.dependencies) {
-      walk(child, node.contract_id);
-    }
-  }
-
-  const roots = Array.isArray(tree) ? tree : [tree];
-  for (const root of roots) {
-    walk(root);
-  }
-  return { nodes, edges };
-}
 
 function normalizeRawSourceUrl(input: string): string {
   try {
@@ -191,6 +148,7 @@ function ContractDetailsContent() {
   const id = Array.isArray(idParam) ? idParam[0] : idParam;
   const { copy: copyHeader, copied: copiedHeader } = useCopy();
   const { copy: copySidebar, copied: copiedSidebar } = useCopy();
+  const { copy: copySourceCode, copied: copiedSourceCode, isCopying: isCopyingSourceCode } = useCopy();
   const networkFromUrl = searchParams?.get("network") as Network | null;
   const [selectedNetwork, setSelectedNetwork] = useState<Network>(
     networkFromUrl && NETWORKS.includes(networkFromUrl) ? networkFromUrl : "mainnet"
@@ -226,7 +184,7 @@ function ContractDetailsContent() {
     enabled: !!id,
   });
 
-  const { data: dependencies, isLoading: depsLoading } = useQuery({
+  useQuery({
     queryKey: ["contract-dependencies", id],
     queryFn: () => api.getContractDependencies(id!),
     enabled: !!id && !!contract && activeTab === "overview",
@@ -279,11 +237,6 @@ function ContractDetailsContent() {
     },
     enabled: !!id && !!contract && activeTab === "source" && !!sourceQueryUrl,
   });
-
-  const depGraph = useMemo(
-    () => (dependencies ? flattenDependencyTree(dependencies as DependencyTreeNode | DependencyTreeNode[], selectedNetwork) : null),
-    [dependencies, selectedNetwork]
-  );
 
   const loweredSearch = tabSearch.trim().toLowerCase();
   const filteredVersions = useMemo(() => {
@@ -398,7 +351,20 @@ function ContractDetailsContent() {
             <div className="flex items-center gap-3 text-muted-foreground">
               <span className="flex items-center gap-2 font-mono bg-accent px-2 py-1 rounded-lg text-sm">
                 <span>{displayContractId}</span>
-                <CodeCopyButton copied={copiedHeader} onCopy={() => copyHeader(displayContractId)} />
+                <CodeCopyButton
+                  copied={copiedHeader}
+                  onCopy={() =>
+                    copyHeader(displayContractId, {
+                      successEventName: 'contract_address_copied',
+                      failureEventName: 'contract_address_copy_failed',
+                      successMessage: 'Contract address copied',
+                      failureMessage: 'Unable to copy contract address',
+                      analyticsParams: { contract_id: contract.id, location: 'header' },
+                    })
+                  }
+                  idleLabel="Copy"
+                  copiedLabel="Copied"
+                />
               </span>
               {displayVerified && (
                 <span className="flex items-center gap-1 text-green-600 dark:text-green-400 text-sm font-medium">
@@ -430,6 +396,13 @@ function ContractDetailsContent() {
           </div>
 
           <div className="flex gap-2">
+            <Link
+              href={`/compare?contracts=${contract.id}`}
+              className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              <GitCompare className="h-4 w-4" />
+              Compare
+            </Link>
             <Link
               href={`/contracts/${id}/compatibility`}
               className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
@@ -532,7 +505,20 @@ function ContractDetailsContent() {
                     <dt className="text-muted-foreground">Address</dt>
                     <dd className="flex items-center justify-between gap-2 font-mono text-xs text-foreground break-all">
                       <span>{displayContractId}</span>
-                      <CodeCopyButton copied={copiedSidebar} onCopy={() => copySidebar(displayContractId)} />
+                      <CodeCopyButton
+                        copied={copiedSidebar}
+                        onCopy={() =>
+                          copySidebar(displayContractId, {
+                            successEventName: 'contract_address_copied',
+                            failureEventName: 'contract_address_copy_failed',
+                            successMessage: 'Contract address copied',
+                            failureMessage: 'Unable to copy contract address',
+                            analyticsParams: { contract_id: contract.id, location: 'sidebar' },
+                          })
+                        }
+                        idleLabel="Copy"
+                        copiedLabel="Copied"
+                      />
                     </dd>
                   </div>
                   <div>
@@ -622,16 +608,35 @@ function ContractDetailsContent() {
           <section className="bg-card rounded-2xl border border-border p-6 space-y-4">
             <div className="flex items-center justify-between gap-4">
               <h2 className="text-xl font-semibold text-foreground">Source Code</h2>
-              {sourceUrl && (
-                <a
-                  href={sourceUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-sm text-primary hover:underline"
-                >
-                  Open Source URL
-                </a>
-              )}
+              <div className="flex items-center gap-2">
+                {sourceCode && (
+                  <CodeCopyButton
+                    onCopy={() =>
+                      copySourceCode(sourceCode, {
+                        successEventName: 'contract_source_code_copied',
+                        failureEventName: 'contract_source_code_copy_failed',
+                        successMessage: 'Contract code copied',
+                        failureMessage: 'Unable to copy contract code',
+                        analyticsParams: { contract_id: contract.id, tab: 'source' },
+                      })
+                    }
+                    copied={copiedSourceCode}
+                    disabled={isCopyingSourceCode}
+                    idleLabel="Copy Code"
+                    copiedLabel="Copied"
+                  />
+                )}
+                {sourceUrl && (
+                  <a
+                    href={sourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm text-primary hover:underline"
+                  >
+                    Open Source URL
+                  </a>
+                )}
+              </div>
             </div>
 
             {!sourceUrl && (

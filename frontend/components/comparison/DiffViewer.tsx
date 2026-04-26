@@ -49,7 +49,9 @@ export default function DiffViewer({ contracts, baselineId, onBaselineIdChange }
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-sm font-semibold text-foreground">Diff view</div>
-            <div className="mt-1 text-xs text-muted-foreground">Baseline: compare other contracts against this one.</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Baseline: compare other contracts against {baseline.name} ({baseline.latestVersion}).
+            </div>
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -60,7 +62,7 @@ export default function DiffViewer({ contracts, baselineId, onBaselineIdChange }
             >
               {contracts.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}
+                  {c.name} ({c.latestVersion})
                 </option>
               ))}
             </select>
@@ -72,7 +74,7 @@ export default function DiffViewer({ contracts, baselineId, onBaselineIdChange }
                 className={`rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
                   tab === 'abi'
                     ? 'border-primary/30 bg-primary/10 text-primary'
-                    : 'border-border bg-background text-muted-foreground hover:text-foreground hover:bg-accent'
+                    : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
                 }`}
               >
                 ABI methods
@@ -83,12 +85,27 @@ export default function DiffViewer({ contracts, baselineId, onBaselineIdChange }
                 className={`rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
                   tab === 'source'
                     ? 'border-primary/30 bg-primary/10 text-primary'
-                    : 'border-border bg-background text-muted-foreground hover:text-foreground hover:bg-accent'
+                    : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground'
                 }`}
               >
                 Source code
               </button>
             </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="rounded-xl border border-border bg-background p-4">
+            <div className="text-xs font-semibold text-muted-foreground">Baseline version</div>
+            <div className="mt-1 text-sm font-semibold text-foreground">{baseline.latestVersion}</div>
+          </div>
+          <div className="rounded-xl border border-border bg-background p-4">
+            <div className="text-xs font-semibold text-muted-foreground">Known versions</div>
+            <div className="mt-1 text-sm font-semibold text-foreground">{baseline.versionCount}</div>
+          </div>
+          <div className="rounded-xl border border-border bg-background p-4">
+            <div className="text-xs font-semibold text-muted-foreground">ABI methods</div>
+            <div className="mt-1 text-sm font-semibold text-foreground">{baseline.abiMethods.length}</div>
           </div>
         </div>
 
@@ -101,13 +118,18 @@ export default function DiffViewer({ contracts, baselineId, onBaselineIdChange }
             {abiDiffs.map(({ contract, diff }) => (
               <div key={contract.id} className="rounded-2xl border border-border bg-background p-5">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="text-sm font-semibold text-foreground">{contract.name}</div>
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">{contract.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {contract.latestVersion} vs {baseline.latestVersion}
+                    </div>
+                  </div>
                   <div className="text-xs text-muted-foreground">
                     +{diff.added.length} / -{diff.removed.length}
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
                     <div className="text-xs font-semibold text-muted-foreground">Added</div>
                     <div className="mt-2 rounded-xl border border-border bg-card p-3">
@@ -148,10 +170,15 @@ export default function DiffViewer({ contracts, baselineId, onBaselineIdChange }
           <div className="grid grid-cols-1 gap-4">
             {sourceDiffs.map(({ contract, lines }) => (
               <div key={contract.id} className="rounded-2xl border border-border bg-background p-5">
-                <div className="text-sm font-semibold text-foreground">{contract.name}</div>
-                <div className="mt-3 rounded-xl border border-border bg-card overflow-hidden">
+                <div>
+                  <div className="text-sm font-semibold text-foreground">{contract.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {contract.latestVersion} vs {baseline.latestVersion}
+                  </div>
+                </div>
+                <div className="mt-3 overflow-hidden rounded-xl border border-border bg-card">
                   <div className="max-h-[560px] overflow-auto">
-                    <pre className="text-xs leading-5 font-mono p-3">
+                    <pre className="p-3 font-mono text-xs leading-5">
                       {lines.map((l, idx) => (
                         <div key={`${idx}-${l.type}-${l.value}`} className={lineClass(l.type)}>
                           <span className="inline-block w-5 select-none text-muted-foreground">
@@ -171,4 +198,3 @@ export default function DiffViewer({ contracts, baselineId, onBaselineIdChange }
     </div>
   );
 }
-

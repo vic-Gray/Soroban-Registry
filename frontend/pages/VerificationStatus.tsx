@@ -7,11 +7,13 @@ import Navbar from '@/components/Navbar';
 import StatusTracker from '@/components/verification/StatusTracker';
 import VerificationBadge from '@/components/verification/VerificationBadge';
 import VerificationSummary from '@/components/verification/VerificationSummary';
+import { VerificationLogs, VerificationMetricsPanel, VerificationWorkflow } from '@/components/verification/VerificationInsights';
 import { useToast } from '@/hooks/useToast';
 
 export const dynamic = 'force-dynamic';
 import {
   getVerificationStatus,
+  retryVerification,
   simulateStatusProgression,
   subscribeToVerificationStatusChanges,
 } from '@/services/mockVerificationService';
@@ -24,6 +26,7 @@ export default function VerificationStatusPage() {
 
   const [request, setRequest] = useState<VerificationRequest | null>(null);
   const [loading, setLoading] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const lastStatusRef = useRef<VerificationStatus | null>(null);
@@ -126,10 +129,41 @@ export default function VerificationStatusPage() {
               </div>
 
               <StatusTracker status={request.status} history={request.statusHistory} />
+              <VerificationWorkflow status={request.status} updatedAt={request.updatedAt} />
+              <VerificationMetricsPanel metrics={request.metrics} />
+
+              {request.status === 'rejected' && (
+                <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
+                  <p className="text-sm font-semibold text-red-700">Verification failed</p>
+                  <p className="text-xs text-red-700/90 mt-1">
+                    {request.lastErrorDetails || 'No additional error details available.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        setRetrying(true);
+                        const next = await retryVerification({ id: request.id });
+                        setRequest(next);
+                        showInfo('Retry started. Verification status will update in real-time.');
+                      } catch (err: unknown) {
+                        showError(err instanceof Error ? err.message : 'Retry failed');
+                      } finally {
+                        setRetrying(false);
+                      }
+                    }}
+                    disabled={retrying}
+                    className="mt-3 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {retrying ? 'Retrying…' : 'Retry verification'}
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="lg:col-span-2 space-y-4">
               <VerificationSummary draft={request.submission} documents={request.submission.documents} status={request.status} />
+              <VerificationLogs logs={request.logs} />
             </div>
           </div>
         ) : null}

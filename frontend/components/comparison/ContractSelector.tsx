@@ -45,7 +45,7 @@ export default function ContractSelector({
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-foreground">Select contracts</h2>
-            <p className="text-xs text-muted-foreground">Pick 2–4 contracts. Duplicates are not allowed.</p>
+            <p className="text-xs text-muted-foreground">Pick 2-4 contracts. Duplicates are not allowed.</p>
           </div>
         </div>
 
@@ -57,7 +57,7 @@ export default function ContractSelector({
               onChange={(e) => onSearchQueryChange(e.target.value)}
               onFocus={() => setOpen(true)}
               onBlur={() => setTimeout(() => setOpen(false), 120)}
-              placeholder="Search by name or contract id…"
+              placeholder="Search by name or contract ID..."
               className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
             />
           </div>
@@ -66,7 +66,7 @@ export default function ContractSelector({
             <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-xl border border-border bg-card shadow-lg shadow-black/8">
               <div className="max-h-64 overflow-auto">
                 {isLoading ? (
-                  <div className="px-3 py-3 text-xs text-muted-foreground">Loading contracts…</div>
+                  <div className="px-3 py-3 text-xs text-muted-foreground">Loading contracts...</div>
                 ) : suggestions.length === 0 ? (
                   <div className="px-3 py-3 text-xs text-muted-foreground">No matches.</div>
                 ) : (
@@ -80,18 +80,20 @@ export default function ContractSelector({
                             disabled={disabled}
                             onMouseDown={(e) => e.preventDefault()}
                             onClick={() => onAdd(c)}
-                            className={`w-full px-3 py-2 flex items-center justify-between gap-3 text-left text-sm transition-colors ${
-                              disabled ? 'text-muted-foreground cursor-not-allowed' : 'text-foreground hover:bg-accent'
+                            className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors ${
+                              disabled ? 'cursor-not-allowed text-muted-foreground' : 'text-foreground hover:bg-accent'
                             }`}
                           >
                             <div className="min-w-0">
                               <div className="truncate font-medium">{c.name}</div>
-                              <div className="truncate text-xs text-muted-foreground font-mono">{c.contract_id}</div>
+                              <div className="truncate font-mono text-xs text-muted-foreground">{c.contract_id}</div>
                             </div>
                             <div className="shrink-0">
                               <span
                                 className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs ${
-                                  disabled ? 'border-border bg-muted text-muted-foreground' : 'border-primary/20 bg-primary/10 text-primary'
+                                  disabled
+                                    ? 'border-border bg-muted text-muted-foreground'
+                                    : 'border-primary/20 bg-primary/10 text-primary'
                                 }`}
                               >
                                 <Plus className="h-3 w-3" />
@@ -126,7 +128,7 @@ export default function ContractSelector({
                 <button
                   type="button"
                   onClick={() => onRemove(s.id)}
-                  className="rounded-full p-1 text-muted-foreground hover:text-foreground hover:bg-background"
+                  className="rounded-full p-1 text-muted-foreground hover:bg-background hover:text-foreground"
                   aria-label={`Remove ${s.name}`}
                 >
                   <X className="h-3.5 w-3.5" />
@@ -139,4 +141,3 @@ export default function ContractSelector({
     </section>
   );
 }
-

@@ -6,7 +6,8 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
+use tokio::time::{sleep, Duration};
 
 // ── Response shapes ──────────────────────────────────────────────────────────
 
@@ -17,6 +18,8 @@ pub struct VerificationResult {
     pub name: Option<String>,
     pub is_verified: bool,
     pub verification_status: String, // "verified" | "unverified" | "pending" | "failed"
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
     pub security_scan: Option<SecurityScan>,
     pub audit: Option<AuditInfo>,
     pub publisher: Option<String>,
@@ -62,11 +65,48 @@ pub async fn run(api_url: &str, address: &str, network: &str, json: bool) -> Res
     let client = reqwest::Client::new();
 
     // ── 1. Fetch contract from registry by on-chain address ──────────────────
+    let mut contract = fetch_contract(api_url, &client, address, network, json).await?;
+    if contract.is_null() {
+        return Ok(());
+    }
+
+    // ── 2. Initiate verification (source verify when available; fallback batch verify)
+    if !json {
+        println!("{} Initiating verification...", "•".cyan().bold());
+    }
+    let initiation = initiate_verification(api_url, &client, &contract, address).await?;
+
+    // ── 3. Wait for completion when backend reports pending/in-progress
+    contract = wait_for_verification_completion(api_url, &client, address, network, &initiation).await?;
+
+    // ── 4. Build result with status/errors/warnings
+    let result = build_result(&contract, &initiation, address, network);
+
+    // ── 5. Fetch verification detail (security scan + audit)
+    let detail = fetch_detail(api_url, &client, &contract).await;
+
+    // ── 6. Output
+    if json {
+        print_json(&result, &detail, &initiation)?;
+    } else {
+        println!("{} Verification initiated successfully", "✓".green().bold());
+        print_human(&result, &detail);
+    }
+
+    Ok(())
+}
+
+async fn fetch_contract(
+    api_url: &str,
+    client: &reqwest::Client,
+    address: &str,
+    network: &str,
+    json_output: bool,
+) -> Result<Value> {
     let search_url = format!(
         "{}/api/contracts?contract_id={}&network={}",
         api_url, address, network
     );
-
     log::debug!("GET {}", search_url);
 
     let response = client
@@ -76,10 +116,9 @@ pub async fn run(api_url: &str, address: &str, network: &str, json: bool) -> Res
         .context("Failed to connect to registry API. Is the registry running?")?;
 
     let status = response.status();
-
     if status == reqwest::StatusCode::NOT_FOUND {
-        if json {
-            let out = serde_json::json!({
+        if json_output {
+            let out = json!({
                 "address": address,
                 "network": network,
                 "is_verified": false,
@@ -101,7 +140,7 @@ pub async fn run(api_url: &str, address: &str, network: &str, json: bool) -> Res
             );
             print_footer();
         }
-        return Ok(());
+        return Ok(Value::Null);
     }
 
     if !status.is_success() {
@@ -113,24 +152,133 @@ pub async fn run(api_url: &str, address: &str, network: &str, json: bool) -> Res
         .json()
         .await
         .context("Failed to parse registry response")?;
+    extract_contract(&raw, address)
+}
 
-    // The API may return either a paginated list or a single object
-    let contract = extract_contract(&raw, address)?;
+async fn initiate_verification(
+    api_url: &str,
+    client: &reqwest::Client,
+    contract: &Value,
+    address: &str,
+) -> Result<Value> {
+    let contract_id = contract["contract_id"]
+        .as_str()
+        .unwrap_or(address)
+        .to_string();
 
-    // ── 2. Build VerificationResult from registry response ───────────────────
-    let result = build_result(&contract, address, network);
+    // Preferred path: source verification endpoint when source is available.
+    if let Some(source_code) = contract["source_code"].as_str().filter(|s| !s.trim().is_empty()) {
+        let compiler_version = contract["compiler_version"]
+            .as_str()
+            .unwrap_or("latest")
+            .to_string();
+        let build_params = contract
+            .get("build_params")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
 
-    // ── 3. Fetch verification detail (security scan + audit) ─────────────────
-    let detail = fetch_detail(api_url, &client, &contract).await;
+        let verify_url = format!("{}/api/contracts/verify", api_url);
+        log::debug!("POST {}", verify_url);
+        let response = client
+            .post(&verify_url)
+            .json(&json!({
+                "contract_id": contract_id,
+                "source_code": source_code,
+                "build_params": build_params,
+                "compiler_version": compiler_version
+            }))
+            .send()
+            .await
+            .context("Failed to initiate source verification")?;
 
-    // ── 4. Output ─────────────────────────────────────────────────────────────
-    if json {
-        print_json(&result, &detail)?;
-    } else {
-        print_human(&result, &detail);
+        if response.status().is_success() {
+            return response
+                .json::<Value>()
+                .await
+                .context("Failed to parse verification initiation response");
+        }
+
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        log::warn!(
+            "Source verification initiation failed ({}). Falling back to on-chain batch verify: {}",
+            status,
+            body
+        );
     }
 
-    Ok(())
+    let batch_url = format!("{}/api/contracts/batch-verify", api_url);
+    log::debug!("POST {}", batch_url);
+    let response = client
+        .post(&batch_url)
+        .json(&json!({
+            "contracts": [
+                {
+                    "contract_id": contract_id
+                }
+            ]
+        }))
+        .send()
+        .await
+        .context("Failed to initiate verification")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("Verification initiation failed ({}): {}", status, body);
+    }
+
+    response
+        .json::<Value>()
+        .await
+        .context("Failed to parse verification initiation response")
+}
+
+async fn wait_for_verification_completion(
+    api_url: &str,
+    client: &reqwest::Client,
+    address: &str,
+    network: &str,
+    initiation: &Value,
+) -> Result<Value> {
+    let mut latest = fetch_contract(api_url, client, address, network, false).await?;
+    if !is_pending(initiation) {
+        return Ok(latest);
+    }
+
+    for _ in 0..15 {
+        sleep(Duration::from_secs(2)).await;
+        latest = fetch_contract(api_url, client, address, network, false).await?;
+        let status = latest["verification_status"]
+            .as_str()
+            .unwrap_or("unverified")
+            .to_lowercase();
+        if status != "pending" && status != "processing" && status != "in_progress" {
+            break;
+        }
+    }
+
+    Ok(latest)
+}
+
+fn is_pending(initiation: &Value) -> bool {
+    let status = initiation["status"]
+        .as_str()
+        .unwrap_or_default()
+        .to_lowercase();
+    if status == "pending" || status == "processing" || status == "in_progress" {
+        return true;
+    }
+
+    initiation["results"]
+        .as_array()
+        .and_then(|results| results.first())
+        .and_then(|first| first["status"].as_str())
+        .map(|s| {
+            let norm = s.to_lowercase();
+            norm == "pending" || norm == "processing" || norm == "in_progress"
+        })
+        .unwrap_or(false)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -165,14 +313,10 @@ fn extract_contract<'a>(raw: &'a Value, address: &str) -> Result<Value> {
     anyhow::bail!("Unexpected registry response format")
 }
 
-fn build_result(contract: &Value, address: &str, network: &str) -> VerificationResult {
+fn build_result(contract: &Value, initiation: &Value, address: &str, network: &str) -> VerificationResult {
     let is_verified = contract["is_verified"].as_bool().unwrap_or(false);
-    let verification_status = if is_verified {
-        "verified"
-    } else {
-        "unverified"
-    }
-    .to_string();
+    let verification_status = resolve_verification_status(contract, initiation, is_verified);
+    let (errors, warnings) = collect_messages(initiation, contract);
 
     VerificationResult {
         address: address.to_string(),
@@ -180,6 +324,8 @@ fn build_result(contract: &Value, address: &str, network: &str) -> VerificationR
         name: contract["name"].as_str().map(str::to_string),
         is_verified,
         verification_status,
+        errors,
+        warnings,
         security_scan: None,
         audit: None,
         publisher: contract["publisher_address"]
@@ -192,6 +338,83 @@ fn build_result(contract: &Value, address: &str, network: &str) -> VerificationR
             .or(contract["updated_at"].as_str())
             .map(str::to_string),
     }
+}
+
+fn resolve_verification_status(
+    contract: &Value,
+    initiation: &Value,
+    is_verified: bool,
+) -> String {
+    if let Some(status) = contract["verification_status"].as_str() {
+        return status.to_lowercase();
+    }
+
+    if let Some(status) = initiation["status"].as_str() {
+        return status.to_lowercase();
+    }
+
+    let batch_verified = initiation["results"]
+        .as_array()
+        .and_then(|results| results.first())
+        .and_then(|first| first["verified"].as_bool());
+
+    match batch_verified {
+        Some(true) => "verified".to_string(),
+        Some(false) => "failed".to_string(),
+        None if is_verified => "verified".to_string(),
+        None => "unverified".to_string(),
+    }
+}
+
+fn collect_messages(initiation: &Value, contract: &Value) -> (Vec<String>, Vec<String>) {
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+
+    if let Some(message) = initiation["message"].as_str() {
+        if initiation["verified"].as_bool() == Some(false) {
+            errors.push(message.to_string());
+        }
+    }
+
+    if let Some(results) = initiation["results"].as_array() {
+        if let Some(first) = results.first() {
+            if let Some(err) = first["error"].as_str() {
+                errors.push(err.to_string());
+            }
+
+            if let Some(source_err) = first["source_verification"]["error"].as_str() {
+                errors.push(source_err.to_string());
+            }
+
+            if let Some(source_message) = first["source_verification"]["message"].as_str() {
+                if first["source_verification"]["verified"].as_bool() != Some(true) {
+                    warnings.push(source_message.to_string());
+                }
+            }
+
+            if let Some(on_chain_warnings) = first["on_chain"]["warnings"].as_array() {
+                for warning in on_chain_warnings {
+                    if let Some(text) = warning.as_str() {
+                        warnings.push(text.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(status) = contract["verification_status"].as_str() {
+        let norm = status.to_lowercase();
+        if norm == "failed" && errors.is_empty() {
+            errors.push("Verification failed according to registry status".to_string());
+        }
+    }
+
+    errors.sort();
+    errors.dedup();
+    warnings.sort();
+    warnings.dedup();
+
+    (errors, warnings)
 }
 
 /// Try to fetch verification detail endpoint. Non-fatal — returns None on error.
@@ -211,8 +434,12 @@ async fn fetch_detail(api_url: &str, client: &reqwest::Client, contract: &Value)
     }
 }
 
-fn print_json(result: &VerificationResult, detail: &Option<Value>) -> Result<()> {
+fn print_json(result: &VerificationResult, detail: &Option<Value>, initiation: &Value) -> Result<()> {
     let mut out = serde_json::to_value(result)?;
+
+    if let Some(obj) = out.as_object_mut() {
+        obj.insert("verification_initiation".to_string(), initiation.clone());
+    }
 
     if let Some(d) = detail {
         // Merge detail fields into output
@@ -263,16 +490,31 @@ fn print_human(result: &VerificationResult, detail: &Option<Value>) {
     println!();
 
     // ── Verification status ──────────────────────────────────────────────────
-    let (icon, status_label) = if result.is_verified {
-        ("✔".green().bold(), "VERIFIED".green().bold())
-    } else {
-        ("✘".red().bold(), "UNVERIFIED".red().bold())
+    let (icon, status_label) = match result.verification_status.as_str() {
+        "verified" => ("✔".green().bold(), "VERIFIED".green().bold()),
+        "pending" | "processing" | "in_progress" => ("●".yellow().bold(), "PENDING".yellow().bold()),
+        "failed" => ("✘".red().bold(), "FAILED".red().bold()),
+        _ => ("✘".red().bold(), "UNVERIFIED".red().bold()),
     };
 
     println!("  {} Verification Status: {}", icon, status_label);
 
     if let Some(verified_at) = &result.verified_at {
         println!("     {} {}", "Last updated:".dimmed(), verified_at.dimmed());
+    }
+
+    if !result.errors.is_empty() {
+        println!("\n  {}", "Errors".bold().red());
+        for error in &result.errors {
+            println!("  {} {}", "✗".red().bold(), error);
+        }
+    }
+
+    if !result.warnings.is_empty() {
+        println!("\n  {}", "Warnings".bold().yellow());
+        for warning in &result.warnings {
+            println!("  {} {}", "⚠".yellow().bold(), warning);
+        }
     }
 
     println!();

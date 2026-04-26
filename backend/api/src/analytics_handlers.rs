@@ -11,12 +11,14 @@
 //!                                       trending-by-category identification.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
-use chrono::NaiveDate;
-use serde::Serialize;
-use shared::{DeploymentStats, InteractorStats, TopUser};
+use chrono::{Duration, NaiveDate, Utc};
+use serde::{Deserialize, Serialize};
+use shared::{DeploymentStats, InteractorStats, Network, TopUser};
+use sqlx::FromRow;
+use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
 use crate::{
@@ -72,11 +74,120 @@ pub struct NetworkAnalytics {
     pub total_views: i64,
 }
 
+/// Analytics summary for a single publisher.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PublisherAnalytics {
+    pub publisher_id: Uuid,
+    pub name: String,
+    pub contract_count: i64,
+    pub total_views: i64,
+}
+
+/// One data-point for registry-wide deployment trends.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct DeploymentTrendPoint {
+    pub date: NaiveDate,
+    pub count: i64,
+}
+
+/// A summary of a recently added contract.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RecentContract {
+    pub id: Uuid,
+    pub name: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub publisher_name: Option<String>,
+    pub network: String,
+    pub category: Option<String>,
+    pub contract_id: String,
+}
+
 /// Top-level response for GET /api/analytics/summary.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct AnalyticsSummaryResponse {
-    pub by_category: Vec<CategoryAnalytics>,
-    pub by_network: Vec<NetworkAnalytics>,
+    pub category_distribution: Vec<CategoryAnalytics>,
+    pub network_usage: Vec<NetworkAnalytics>,
+    pub top_publishers: Vec<PublisherAnalytics>,
+    pub deployment_trends: Vec<DeploymentTrendPoint>,
+    pub recent_additions: Vec<RecentContract>,
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct AnalyticsTimeSeriesQuery {
+    /// Inclusive start date (YYYY-MM-DD). Defaults to 30 days before end_date.
+    pub start_date: Option<NaiveDate>,
+    /// Inclusive end date (YYYY-MM-DD). Defaults to today (UTC).
+    pub end_date: Option<NaiveDate>,
+    /// Grouping dimension: network, category, or publisher. Defaults to network.
+    pub group_by: Option<String>,
+    /// Optional contract network filter.
+    pub network: Option<Network>,
+    /// Optional category filter.
+    pub category: Option<String>,
+    /// Optional publisher UUID filter.
+    pub publisher_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct AnalyticsTimeSeriesPoint {
+    pub date: NaiveDate,
+    pub deployments: i64,
+    pub verifications: i64,
+    pub updates: i64,
+    pub total_events: i64,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct AnalyticsTimeSeriesGroup {
+    pub key: String,
+    pub points: Vec<AnalyticsTimeSeriesPoint>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct AnalyticsTimeSeriesResponse {
+    pub start_date: NaiveDate,
+    pub end_date: NaiveDate,
+    pub group_by: String,
+    pub series: Vec<AnalyticsTimeSeriesGroup>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TimeSeriesGroupBy {
+    Network,
+    Category,
+    Publisher,
+}
+
+impl TimeSeriesGroupBy {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Network => "network",
+            Self::Category => "category",
+            Self::Publisher => "publisher",
+        }
+    }
+
+    fn parse(raw: Option<&str>) -> ApiResult<Self> {
+        match raw.unwrap_or("network") {
+            "network" => Ok(Self::Network),
+            "category" => Ok(Self::Category),
+            "publisher" => Ok(Self::Publisher),
+            _ => Err(ApiError::bad_request(
+                "InvalidGroupBy",
+                "group_by must be one of: network, category, publisher",
+            )),
+        }
+    }
+}
+
+#[derive(Debug, FromRow)]
+struct AnalyticsTimeSeriesRow {
+    day: NaiveDate,
+    group_key: String,
+    deployments: i64,
+    verifications: i64,
+    updates: i64,
+    total_events: i64,
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -398,15 +509,290 @@ pub async fn get_analytics_summary(
         )
         .collect();
 
+    // ── Top publishers ────────────────────────────────────────────────────────
+    let publisher_rows: Vec<(Uuid, String, i64, i64)> = sqlx::query_as(
+        r#"
+        SELECT
+            p.id,
+            p.name,
+            COUNT(c.id)::BIGINT           AS contract_count,
+            COALESCE(SUM(c.view_count), 0)::BIGINT AS total_views
+        FROM publishers p
+        LEFT JOIN contracts c ON c.publisher_id = p.id
+        GROUP BY p.id, p.name
+        ORDER BY contract_count DESC
+        LIMIT 10
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| db_err("fetch top publishers", err))?;
+
+    let top_publishers: Vec<PublisherAnalytics> = publisher_rows
+        .into_iter()
+        .map(|(publisher_id, name, contract_count, total_views)| {
+            PublisherAnalytics {
+                publisher_id,
+                name,
+                contract_count,
+                total_views,
+            }
+        })
+        .collect();
+
+    // ── Registry-wide deployment trends (last 30 days) ─────────────────────────
+    let thirty_days_ago = chrono::Utc::now() - chrono::Duration::days(30);
+    let trend_rows: Vec<(NaiveDate, i64)> = sqlx::query_as(
+        r#"
+        SELECT
+            d::DATE AS date,
+            COALESCE(SUM(agg.count), 0)::BIGINT AS count
+        FROM generate_series(
+            ($1::TIMESTAMPTZ)::DATE,
+            CURRENT_DATE,
+            '1 day'::INTERVAL
+        ) d
+        LEFT JOIN contract_interaction_daily_aggregates agg
+               ON agg.day = d::DATE
+              AND agg.interaction_type = 'deploy'
+        GROUP BY d::DATE
+        ORDER BY d::DATE
+        "#,
+    )
+    .bind(thirty_days_ago)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| db_err("fetch deployment trends", err))?;
+
+    let deployment_trends: Vec<DeploymentTrendPoint> = trend_rows
+        .into_iter()
+        .map(|(date, count)| DeploymentTrendPoint { date, count })
+        .collect();
+
+    // ── Recent additions (last 10) ──────────────────────────────────────────
+    let recent_rows: Vec<(Uuid, String, chrono::DateTime<chrono::Utc>, Option<String>, String, Option<String>, String)> = sqlx::query_as(
+        r#"
+        SELECT
+            c.id,
+            c.name,
+            c.created_at,
+            p.name as publisher_name,
+            c.network::TEXT,
+            c.category,
+            c.contract_id
+        FROM contracts c
+        LEFT JOIN publishers p ON p.id = c.publisher_id
+        ORDER BY c.created_at DESC
+        LIMIT 10
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| db_err("fetch recent additions", err))?;
+
+    let recent_additions: Vec<RecentContract> = recent_rows
+        .into_iter()
+        .map(|(id, name, created_at, publisher_name, network, category, contract_id)| {
+            RecentContract {
+                id,
+                name,
+                created_at,
+                publisher_name,
+                network,
+                category,
+                contract_id,
+            }
+        })
+        .collect();
+
     Ok(Json(AnalyticsSummaryResponse {
-        by_category,
-        by_network,
+        category_distribution: by_category,
+        network_usage: by_network,
+        top_publishers,
+        deployment_trends,
+        recent_additions,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/analytics/timeseries",
+    params(AnalyticsTimeSeriesQuery),
+    responses(
+        (status = 200, description = "Daily analytics aggregates grouped by dimension", body = AnalyticsTimeSeriesResponse),
+        (status = 400, description = "Invalid query parameters")
+    ),
+    tag = "Analytics"
+)]
+pub async fn get_analytics_timeseries(
+    State(state): State<AppState>,
+    Query(query): Query<AnalyticsTimeSeriesQuery>,
+) -> ApiResult<Json<AnalyticsTimeSeriesResponse>> {
+    let end_date = query.end_date.unwrap_or_else(|| Utc::now().date_naive());
+    let start_date = query
+        .start_date
+        .unwrap_or_else(|| end_date - Duration::days(30));
+
+    if start_date > end_date {
+        return Err(ApiError::bad_request(
+            "InvalidDateRange",
+            "start_date must be less than or equal to end_date",
+        ));
+    }
+
+    if (end_date - start_date).num_days() > 366 {
+        return Err(ApiError::bad_request(
+            "DateRangeTooLarge",
+            "date range cannot exceed 366 days",
+        ));
+    }
+
+    let group_by = TimeSeriesGroupBy::parse(query.group_by.as_deref())?;
+
+    let rows: Vec<AnalyticsTimeSeriesRow> = match group_by {
+        TimeSeriesGroupBy::Network => sqlx::query_as(
+            r#"
+                SELECT
+                    a.date AS day,
+                    c.network::TEXT AS group_key,
+                    COALESCE(SUM(a.deployment_count), 0)::BIGINT AS deployments,
+                    COALESCE(SUM(a.verification_count), 0)::BIGINT AS verifications,
+                    COALESCE(SUM(a.update_count), 0)::BIGINT AS updates,
+                    COALESCE(SUM(a.total_events), 0)::BIGINT AS total_events
+                FROM analytics_daily_aggregates a
+                JOIN contracts c ON c.id = a.contract_id
+                WHERE a.date BETWEEN $1 AND $2
+                  AND ($3::network_type IS NULL OR c.network = $3)
+                  AND ($4::TEXT IS NULL OR c.category = $4)
+                  AND ($5::UUID IS NULL OR c.publisher_id = $5)
+                GROUP BY a.date, c.network
+                ORDER BY a.date ASC, c.network::TEXT ASC
+                "#,
+        )
+        .bind(start_date)
+        .bind(end_date)
+        .bind(query.network)
+        .bind(query.category.as_deref())
+        .bind(query.publisher_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|err| db_err("fetch analytics timeseries grouped by network", err))?,
+        TimeSeriesGroupBy::Category => sqlx::query_as(
+            r#"
+                SELECT
+                    a.date AS day,
+                    COALESCE(c.category, 'uncategorized') AS group_key,
+                    COALESCE(SUM(a.deployment_count), 0)::BIGINT AS deployments,
+                    COALESCE(SUM(a.verification_count), 0)::BIGINT AS verifications,
+                    COALESCE(SUM(a.update_count), 0)::BIGINT AS updates,
+                    COALESCE(SUM(a.total_events), 0)::BIGINT AS total_events
+                FROM analytics_daily_aggregates a
+                JOIN contracts c ON c.id = a.contract_id
+                WHERE a.date BETWEEN $1 AND $2
+                  AND ($3::network_type IS NULL OR c.network = $3)
+                  AND ($4::TEXT IS NULL OR c.category = $4)
+                  AND ($5::UUID IS NULL OR c.publisher_id = $5)
+                GROUP BY a.date, COALESCE(c.category, 'uncategorized')
+                ORDER BY a.date ASC, group_key ASC
+                "#,
+        )
+        .bind(start_date)
+        .bind(end_date)
+        .bind(query.network)
+        .bind(query.category.as_deref())
+        .bind(query.publisher_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|err| db_err("fetch analytics timeseries grouped by category", err))?,
+        TimeSeriesGroupBy::Publisher => sqlx::query_as(
+            r#"
+                SELECT
+                    a.date AS day,
+                    COALESCE(p.stellar_address, c.publisher_id::TEXT) AS group_key,
+                    COALESCE(SUM(a.deployment_count), 0)::BIGINT AS deployments,
+                    COALESCE(SUM(a.verification_count), 0)::BIGINT AS verifications,
+                    COALESCE(SUM(a.update_count), 0)::BIGINT AS updates,
+                    COALESCE(SUM(a.total_events), 0)::BIGINT AS total_events
+                FROM analytics_daily_aggregates a
+                JOIN contracts c ON c.id = a.contract_id
+                LEFT JOIN publishers p ON p.id = c.publisher_id
+                WHERE a.date BETWEEN $1 AND $2
+                  AND ($3::network_type IS NULL OR c.network = $3)
+                  AND ($4::TEXT IS NULL OR c.category = $4)
+                  AND ($5::UUID IS NULL OR c.publisher_id = $5)
+                GROUP BY a.date, COALESCE(p.stellar_address, c.publisher_id::TEXT)
+                ORDER BY a.date ASC, group_key ASC
+                "#,
+        )
+        .bind(start_date)
+        .bind(end_date)
+        .bind(query.network)
+        .bind(query.category.as_deref())
+        .bind(query.publisher_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|err| db_err("fetch analytics timeseries grouped by publisher", err))?,
+    };
+
+    let mut by_group: HashMap<String, BTreeMap<NaiveDate, AnalyticsTimeSeriesPoint>> =
+        HashMap::new();
+
+    for row in rows {
+        by_group.entry(row.group_key).or_default().insert(
+            row.day,
+            AnalyticsTimeSeriesPoint {
+                date: row.day,
+                deployments: row.deployments,
+                verifications: row.verifications,
+                updates: row.updates,
+                total_events: row.total_events,
+            },
+        );
+    }
+
+    let mut series: Vec<AnalyticsTimeSeriesGroup> = by_group
+        .into_iter()
+        .map(|(key, date_map)| {
+            let mut cursor = start_date;
+            let mut points = Vec::new();
+
+            while cursor <= end_date {
+                if let Some(point) = date_map.get(&cursor) {
+                    points.push(AnalyticsTimeSeriesPoint {
+                        date: point.date,
+                        deployments: point.deployments,
+                        verifications: point.verifications,
+                        updates: point.updates,
+                        total_events: point.total_events,
+                    });
+                } else {
+                    points.push(AnalyticsTimeSeriesPoint {
+                        date: cursor,
+                        deployments: 0,
+                        verifications: 0,
+                        updates: 0,
+                        total_events: 0,
+                    });
+                }
+
+                cursor = cursor.succ_opt().expect("valid calendar date");
+            }
+
+            AnalyticsTimeSeriesGroup { key, points }
+        })
+        .collect();
+
+    series.sort_by(|a, b| a.key.cmp(&b.key));
+
+    Ok(Json(AnalyticsTimeSeriesResponse {
+        start_date,
+        end_date,
+        group_by: group_by.as_str().to_string(),
+        series,
     }))
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -448,4 +834,191 @@ mod tests {
         let avg = total_interactions as f64 / contract_count as f64;
         assert_eq!(avg, 25.0);
     }
+}
+
+// ── Dashboard endpoint ────────────────────────────────────────────────────────
+
+/// Query parameters for the dashboard endpoint.
+#[derive(Debug, Deserialize)]
+pub struct DashboardParams {
+    /// Number of recent additions to return (default: 10, max: 50).
+    pub limit: Option<i64>,
+}
+
+/// One entry in the network_usage array returned by the dashboard endpoint.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct NetworkUsageEntry {
+    pub network: String,
+    pub count: i64,
+}
+
+/// One entry in the category_distribution array returned by the dashboard endpoint.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct CategoryDistributionEntry {
+    pub category: String,
+    pub count: i64,
+}
+
+/// One entry in the deployment_trends array returned by the dashboard endpoint.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct DeploymentTrendEntry {
+    pub date: NaiveDate,
+    pub count: i64,
+}
+
+/// One entry in the recent_additions array returned by the dashboard endpoint.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RecentAdditionEntry {
+    pub id: Uuid,
+    pub contract_id: String,
+    pub name: String,
+    pub network: String,
+    pub category: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Response shape for GET /api/analytics/dashboard.
+///
+/// This is the exact shape consumed by the frontend analytics page at /analytics.
+/// Fields:
+/// - `recent_additions` → `RecentAdditionsTimeline` and `DeploymentTimeline` components
+/// - `network_usage`    → `NetworkUsageStats` component  (expects `[{network, count}]`)
+/// - `category_distribution` → `CategoryDistributionPie` (expects `[{category, count}]`)
+/// - `deployment_trends`     → `DeploymentTrendGraph`    (expects `[{date, count}]`)
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct AnalyticsDashboardResponse {
+    pub recent_additions: Vec<RecentAdditionEntry>,
+    pub network_usage: Vec<NetworkUsageEntry>,
+    pub category_distribution: Vec<CategoryDistributionEntry>,
+    pub deployment_trends: Vec<DeploymentTrendEntry>,
+}
+
+/// Return the analytics dashboard data consumed by the frontend /analytics page.
+///
+/// This endpoint is registered at GET /api/analytics/dashboard and returns the
+/// exact response shape the frontend expects.  All four data sets are fetched
+/// in parallel-friendly sequential queries that use existing indexes.
+#[utoipa::path(
+    get,
+    path = "/api/analytics/dashboard",
+    params(
+        ("limit" = Option<i64>, Query, description = "Number of recent additions (default 10, max 50)")
+    ),
+    responses(
+        (status = 200, description = "Analytics dashboard data", body = AnalyticsDashboardResponse)
+    ),
+    tag = "Analytics"
+)]
+pub async fn get_analytics_dashboard(
+    State(state): State<AppState>,
+    Query(params): Query<DashboardParams>,
+) -> ApiResult<Json<AnalyticsDashboardResponse>> {
+    let limit = params.limit.unwrap_or(10).clamp(1, 50);
+
+    // ── Recent additions (newest contracts first) ─────────────────────────────
+    let recent_rows: Vec<(Uuid, String, String, String, Option<String>, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as(
+            r#"
+            SELECT id, contract_id, name, network::TEXT, category, created_at
+            FROM   contracts
+            ORDER  BY created_at DESC
+            LIMIT  $1
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|err| db_err("fetch recent additions", err))?;
+
+    let recent_additions: Vec<RecentAdditionEntry> = recent_rows
+        .into_iter()
+        .map(|(id, contract_id, name, network, category, created_at)| RecentAdditionEntry {
+            id,
+            contract_id,
+            name,
+            network,
+            category,
+            created_at,
+        })
+        .collect();
+
+    // ── Network usage (contract counts per network) ───────────────────────────
+    let network_rows: Vec<(String, i64)> = sqlx::query_as(
+        r#"
+        SELECT network::TEXT, COUNT(*)::BIGINT AS count
+        FROM   contracts
+        GROUP  BY network
+        ORDER  BY count DESC
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| db_err("fetch network usage", err))?;
+
+    let network_usage: Vec<NetworkUsageEntry> = network_rows
+        .into_iter()
+        .map(|(network, count)| NetworkUsageEntry { network, count })
+        .collect();
+
+    // ── Category distribution (top 10 categories by contract count) ───────────
+    let category_rows: Vec<(Option<String>, i64)> = sqlx::query_as(
+        r#"
+        SELECT COALESCE(category, 'Uncategorized') AS category,
+               COUNT(*)::BIGINT AS count
+        FROM   contracts
+        GROUP  BY category
+        ORDER  BY count DESC
+        LIMIT  10
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| db_err("fetch category distribution", err))?;
+
+    let category_distribution: Vec<CategoryDistributionEntry> = category_rows
+        .into_iter()
+        .map(|(category, count)| CategoryDistributionEntry {
+            category: category.unwrap_or_else(|| "Uncategorized".to_string()),
+            count,
+        })
+        .collect();
+
+    // ── Deployment trends (daily deploy counts for last 30 days) ─────────────
+    // Uses the daily-aggregate rollup for 'deploy' interactions so the query
+    // is fast even on large registries.  generate_series fills in zero-count
+    // days so the chart always has a continuous 30-day series.
+    let thirty_days_ago = chrono::Utc::now() - chrono::Duration::days(30);
+
+    let trend_rows: Vec<(NaiveDate, i64)> = sqlx::query_as(
+        r#"
+        SELECT d::DATE AS date,
+               COALESCE(SUM(agg.count), 0)::BIGINT AS count
+        FROM   generate_series(
+                   ($1::TIMESTAMPTZ)::DATE,
+                   CURRENT_DATE,
+                   '1 day'::INTERVAL
+               ) d
+        LEFT   JOIN contract_interaction_daily_aggregates agg
+               ON  agg.day = d::DATE
+               AND agg.interaction_type = 'deploy'
+        GROUP  BY d::DATE
+        ORDER  BY d::DATE
+        "#,
+    )
+    .bind(thirty_days_ago)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|err| db_err("fetch deployment trends", err))?;
+
+    let deployment_trends: Vec<DeploymentTrendEntry> = trend_rows
+        .into_iter()
+        .map(|(date, count)| DeploymentTrendEntry { date, count })
+        .collect();
+
+    Ok(Json(AnalyticsDashboardResponse {
+        recent_additions,
+        network_usage,
+        category_distribution,
+        deployment_trends,
+    }))
 }

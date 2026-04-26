@@ -3,16 +3,14 @@ use crate::cache::{CacheConfig, CacheLayer};
 use crate::contract_events::ContractEventHub;
 use crate::health_monitor::HealthMonitorStatus;
 use crate::resource_tracking::ResourceManager;
-use shared::error::Result;
 use shared::source_storage::SourceStorage;
 
 use prometheus::Registry;
-use shared::source_storage::SourceStorage;
 use sqlx::PgPool;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
-
 
 use tokio::sync::broadcast;
 
@@ -55,10 +53,7 @@ pub struct AppState {
     pub resource_mgr: Arc<RwLock<ResourceManager>>,
     pub source_storage: Arc<SourceStorage>,
     pub event_broadcaster: broadcast::Sender<RealtimeEvent>,
-    pub contract_events: Arc<ContractEventHub>,
-    pub source_storage: Arc<shared::source_storage::SourceStorage>,
 }
-
 
 impl AppState {
     pub async fn new(
@@ -68,9 +63,22 @@ impl AppState {
         is_shutting_down: Arc<AtomicBool>,
     ) -> Result<Self, shared::error::RegistryError> {
         let config = CacheConfig::from_env();
-        let auth_mgr = Arc::new(RwLock::new(
-            AuthManager::from_env().expect("JWT config validated at startup"),
-        ));
+        let auth_manager = match AuthManager::from_env() {
+            Ok(manager) => manager,
+            Err(err) => {
+                #[cfg(test)]
+                {
+                    let _ = err;
+                    // Keep tests deterministic when JWT_SECRET is not set in local environments.
+                    AuthManager::new("test-jwt-secret-at-least-32-chars".to_string())
+                }
+                #[cfg(not(test))]
+                {
+                    panic!("JWT config validated at startup: {:?}", err)
+                }
+            }
+        };
+        let auth_mgr = Arc::new(RwLock::new(auth_manager));
         let resource_mgr = Arc::new(RwLock::new(ResourceManager::new()));
         let contract_events = Arc::new(ContractEventHub::from_env());
         let source_storage = Arc::new(SourceStorage::new().await?);
@@ -88,12 +96,6 @@ impl AppState {
             resource_mgr,
             source_storage,
             event_broadcaster,
-            contract_events: Arc::new(ContractEventHub::from_env()),
-            source_storage: Arc::new(
-                shared::source_storage::SourceStorage::new()
-                    .await
-                    .expect("source storage init"),
-            ),
         })
     }
 }

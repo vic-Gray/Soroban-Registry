@@ -2400,6 +2400,9 @@ pub struct ActivityFeedParams {
 
     /// Optionally filter by event type.
     pub event_type: Option<AnalyticsEventType>,
+
+    /// Optionally filter by contract ID.
+    pub contract_id: Option<Uuid>,
 }
 
 fn default_activity_limit() -> i64 {
@@ -4068,7 +4071,7 @@ pub struct UserSubscriptionsResponse {
 }
 
 /// Summary of a contract subscription
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct ContractSubscriptionSummary {
     pub id: Uuid,
     pub contract_id: Uuid,

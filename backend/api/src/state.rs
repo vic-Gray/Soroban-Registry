@@ -7,6 +7,7 @@ use shared::source_storage::SourceStorage;
 
 use prometheus::Registry;
 use sqlx::PgPool;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;

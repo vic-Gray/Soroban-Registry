@@ -33,6 +33,7 @@ mod shell;
 mod sla;
 mod table_format;
 mod test_framework;
+mod shell;
 mod track_deployment;
 mod track_deployment;
 mod webhook;
@@ -97,19 +98,6 @@ pub enum Commands {
         json: bool,
     },
 
-    /// Get detailed information about a contract
-    Info {
-        /// Contract registry identifier (UUID, contract address, or name)
-        contract_id: String,
-
-        /// Output format (text, json, yaml)
-        #[arg(long, short = 'f', default_value = "text")]
-        format: String,
-
-        /// Highlight a specific ABI method
-        #[arg(long)]
-        highlight_method: Option<String>,
-    },
 
     /// Publish a new contract to the registry
     Publish {
@@ -162,15 +150,37 @@ pub enum Commands {
         skip_tests: bool,
     },
 
-    /// List recent contracts
+    /// List contracts in the registry
     List {
-        /// Maximum number of contracts to show
-        #[arg(long, default_value = "10")]
+        /// Max number of contracts to list
+        #[arg(long, short, default_value = "20")]
         limit: usize,
-        /// Output results as machine-readable JSON
-        #[arg(long)]
-        json: bool,
+
+        /// Number of contracts to skip
+        #[arg(long, short, default_value = "0")]
+        offset: usize,
+
+        /// Filter by network (mainnet, testnet, futurenet)
+        #[arg(long, short)]
+        network: Option<crate::config::Network>,
+
+        /// Filter by category
+        #[arg(long, short)]
+        category: Option<String>,
+
+        /// Output format (table, json, csv)
+        #[arg(long, short, default_value = "table")]
+        format: String,
     },
+
+    /// Show detailed info for a specific contract
+    Info {
+        /// Contract ID or slug
+        id: String,
+    },
+
+    /// Check CLI version and update availability
+    Version,
 
     /// Launch an interactive, real-time terminal dashboard
     Dashboard {
@@ -1614,25 +1624,11 @@ pub async fn dispatch_command(
             )
             .await?;
         }
-        Commands::Info {
-            contract_id,
-            format,
-            highlight_method,
-        } => {
-            log::debug!(
-                "Command: info | contract_id={} format={} highlight={:?}",
-                contract_id,
-                format,
-                highlight_method
-            );
-            commands::info(
-                &cli.api_url,
-                &contract_id,
-                &format,
-                highlight_method.as_deref(),
-                cfg_network,
-            )
-            .await?;
+        Commands::Info { id } => {
+            commands::contract_info(&cli.api_url, &id).await?;
+        }
+        Commands::Version => {
+            version::check_version().await?;
         }
         Commands::Publish {
             contract_id,
@@ -1675,9 +1671,22 @@ pub async fn dispatch_command(
             )
             .await?;
         }
-        Commands::List { limit, json } => {
-            log::debug!("Command: list | limit={}", limit);
-            commands::list(&cli.api_url, limit, network, json).await?;
+        Commands::List {
+            limit,
+            offset,
+            network,
+            category,
+            format,
+        } => {
+            commands::contract_list(
+                &cli.api_url,
+                limit,
+                offset,
+                network.or(Some(cfg_network)),
+                category,
+                &format,
+            )
+            .await?;
         }
         Commands::Dashboard {
             refresh_rate,

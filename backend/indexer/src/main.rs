@@ -19,6 +19,7 @@ mod detector;
 mod reorg;
 mod rpc;
 mod state;
+mod telemetry;
 
 use anyhow::Result;
 use config::{DatabaseConfig, ServiceConfig};
@@ -29,8 +30,6 @@ use state::{IndexerState, StateManager};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{error, info, warn};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
 
 struct IndexerService {
     config: ServiceConfig,
@@ -349,14 +348,8 @@ impl IndexerService {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tracing/logging
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "indexer=info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stdout))
-        .init();
+    // Initialize tracing/logging with optional OTLP export.
+    telemetry::init_tracing("soroban-registry-indexer");
 
     info!("Stellar Blockchain Indexer Service starting...");
 

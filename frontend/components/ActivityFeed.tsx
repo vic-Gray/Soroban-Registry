@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { api, AnalyticsEvent, AnalyticsEventType, ActivityFeedResponse } from '@/lib/api';
 import { useRealtime } from '@/hooks/useRealtime';
 import { formatPublicKey, formatShortenedText } from '@/lib/utils/formatting';
@@ -16,20 +16,24 @@ import {
   Filter,
   Clock,
   Zap,
-  Tag
+  Tag,
+  type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useTranslation } from '@/lib/i18n/client';
 
-const EVENT_CONFIG: Record<string, { icon: any, label: string, color: string }> = {
-  contract_published: { icon: Upload, label: 'Published', color: 'text-blue-500 bg-blue-500/10' },
-  contract_verified: { icon: CheckCircle2, label: 'Verified', color: 'text-emerald-500 bg-emerald-500/10' },
-  contract_deployed: { icon: Zap, label: 'Deployed', color: 'text-amber-500 bg-amber-500/10' },
-  version_created: { icon: RefreshCcw, label: 'New Version', color: 'text-purple-500 bg-purple-500/10' },
-  contract_updated: { icon: Tag, label: 'Updated', color: 'text-indigo-500 bg-indigo-500/10' },
-  publisher_created: { icon: UserPlus, label: 'New Publisher', color: 'text-pink-500 bg-pink-500/10' },
-};
+const getEventConfig = (t: any): Record<string, { icon: any, label: string, color: string }> => ({
+  contract_published: { icon: Upload, label: t('activityFeed.published'), color: 'text-blue-500 bg-blue-500/10' },
+  contract_verified: { icon: CheckCircle2, label: t('activityFeed.verified'), color: 'text-emerald-500 bg-emerald-500/10' },
+  contract_deployed: { icon: Zap, label: t('activityFeed.deployed'), color: 'text-amber-500 bg-amber-500/10' },
+  version_created: { icon: RefreshCcw, label: t('activityFeed.newVersion'), color: 'text-purple-500 bg-purple-500/10' },
+  contract_updated: { icon: Tag, label: t('activityFeed.updated'), color: 'text-indigo-500 bg-indigo-500/10' },
+  publisher_created: { icon: UserPlus, label: t('activityFeed.newPublisher', 'New Publisher'), color: 'text-pink-500 bg-pink-500/10' },
+});
 
 export default function ActivityFeed() {
+  const { t } = useTranslation('common');
+  const EVENT_CONFIG = getEventConfig(t);
   const queryClient = useQueryClient();
   const { subscribe, isConnected } = useRealtime();
 
@@ -57,7 +61,7 @@ export default function ActivityFeed() {
 
   // Handle real-time events
   useEffect(() => {
-    const handleDeployment = (event: any) => {
+    const handleDeployment = (event: RealtimeDeploymentEvent) => {
       // Convert RealtimeEvent to AnalyticsEvent
       const newEvent: AnalyticsEvent = {
         id: Math.random().toString(36).substring(7),
@@ -74,7 +78,7 @@ export default function ActivityFeed() {
       }
     };
 
-    const handleUpdate = (event: any) => {
+    const handleUpdate = (event: RealtimeUpdateEvent) => {
       const newEvent: AnalyticsEvent = {
         id: Math.random().toString(36).substring(7),
         event_type: 'contract_updated',
@@ -118,7 +122,7 @@ export default function ActivityFeed() {
   };
 
   const formatAddress = (addr: string | null) => {
-    if (!addr) return 'Unknown';
+    if (!addr) return t('common.unknown', 'Unknown');
     return formatPublicKey(addr);
   };
 
@@ -127,9 +131,9 @@ export default function ActivityFeed() {
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     
-    if (diff < 60000) return 'just now';
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    if (diff < 60000) return t('activityFeed.justNow');
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}${t('activityFeed.m_ago')}`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}${t('activityFeed.h_ago')}`;
     return date.toLocaleDateString();
   };
 
@@ -138,9 +142,9 @@ export default function ActivityFeed() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Activity className="w-6 h-6 text-primary" />
-          <h2 className="text-xl font-bold text-foreground">Registry Activity</h2>
+          <h2 className="text-xl font-bold text-foreground">{t('activityFeed.title')}</h2>
           {isConnected && (
-            <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse ml-1" title="Live updates active" />
+            <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse ml-1" title={t('activityFeed.liveUpdates')} />
           )}
         </div>
 
@@ -148,15 +152,15 @@ export default function ActivityFeed() {
           <Filter className="w-4 h-4 text-muted-foreground" />
           <select 
             value={eventType}
-            onChange={(e) => setEventType(e.target.value as any)}
+            onChange={(e) => setEventType(e.target.value as AnalyticsEventType | 'all')}
             className="bg-transparent text-sm font-medium text-foreground focus:outline-none cursor-pointer"
           >
-            <option value="all">All Events</option>
-            <option value="contract_published">Published</option>
-            <option value="contract_verified">Verified</option>
-            <option value="contract_deployed">Deployed</option>
-            <option value="version_created">New Version</option>
-            <option value="contract_updated">Updated</option>
+            <option value="all">{t('activityFeed.allEvents')}</option>
+            <option value="contract_published">{t('activityFeed.published')}</option>
+            <option value="contract_verified">{t('activityFeed.verified')}</option>
+            <option value="contract_deployed">{t('activityFeed.deployed')}</option>
+            <option value="version_created">{t('activityFeed.newVersion')}</option>
+            <option value="contract_updated">{t('activityFeed.updated')}</option>
           </select>
         </div>
       </div>
@@ -165,15 +169,15 @@ export default function ActivityFeed() {
         {isLoading && items.length === 0 ? (
           <div className="p-12 flex flex-col items-center justify-center text-muted-foreground gap-3">
             <RefreshCcw className="w-8 h-8 animate-spin text-primary/40" />
-            <p className="text-sm">Loading activity feed...</p>
+            <p className="text-sm">{t('activityFeed.loading')}</p>
           </div>
         ) : error ? (
           <div className="p-12 text-center text-red-500">
-            <p>Failed to load activity feed.</p>
+            <p>{t('activityFeed.failed')}</p>
           </div>
         ) : items.length === 0 ? (
           <div className="p-12 text-center text-muted-foreground">
-            <p>No recent activity found.</p>
+            <p>{t('activityFeed.noActivity')}</p>
           </div>
         ) : (
           <div className="divide-y divide-border">
@@ -214,7 +218,7 @@ export default function ActivityFeed() {
                       <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-x-2">
                         {item.user_address && (
                           <>
-                            <span>by</span>
+                            <span>{t('activityFeed.by')}</span>
                             <span className="font-mono text-foreground bg-muted px-1 rounded text-[11px]">
                               {formatAddress(item.user_address)}
                             </span>
@@ -229,7 +233,7 @@ export default function ActivityFeed() {
 
                       {item.event_type === 'contract_updated' && item.metadata?.update_type && (
                         <div className="mt-1 text-xs px-2 py-1 rounded bg-muted/50 border border-border inline-block w-fit">
-                          <span className="font-medium">Type:</span> {item.metadata.update_type}
+                          <span className="font-medium">{t('activityFeed.type')}:</span> {item.metadata.update_type}
                         </div>
                       )}
                     </div>
@@ -252,7 +256,7 @@ export default function ActivityFeed() {
           ) : (
             <ChevronDown className="w-4 h-4" />
           )}
-          Load More Activity
+          {t('activityFeed.loadMore')}
         </button>
       )}
     </div>

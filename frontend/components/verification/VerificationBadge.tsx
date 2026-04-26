@@ -3,8 +3,9 @@
 import React from 'react';
 import { CheckCircle2, ShieldAlert, ShieldCheck, ShieldX } from 'lucide-react';
 import type { VerificationStatus } from '@/types/verification';
+import { useTranslation } from '@/lib/i18n/client';
 
-function getBadgeConfig(status: VerificationStatus): {
+function getBadgeConfig(status: VerificationStatus, t: any): {
   label: string;
   className: string;
   Icon: React.ComponentType<{ className?: string }>;
@@ -12,31 +13,31 @@ function getBadgeConfig(status: VerificationStatus): {
   switch (status) {
     case 'approved':
       return {
-        label: 'Verified',
+        label: t('verificationBadge.verified'),
         className: 'bg-green-500/10 text-green-500 border-green-500/20',
         Icon: CheckCircle2,
       };
     case 'under_review':
       return {
-        label: 'Under review',
+        label: t('verificationBadge.underReview'),
         className: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
         Icon: ShieldCheck,
       };
     case 'rejected':
       return {
-        label: 'Rejected',
+        label: t('verificationBadge.rejected'),
         className: 'bg-red-500/10 text-red-500 border-red-500/20',
         Icon: ShieldX,
       };
     case 'submitted':
       return {
-        label: 'Submitted',
+        label: t('verificationBadge.submitted'),
         className: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20',
         Icon: ShieldAlert,
       };
     default:
       return {
-        label: 'Draft',
+        label: t('verificationBadge.draft'),
         className: 'bg-muted text-muted-foreground border-border',
         Icon: ShieldAlert,
       };
@@ -44,8 +45,9 @@ function getBadgeConfig(status: VerificationStatus): {
 }
 
 export default function VerificationBadge(props: { status: VerificationStatus; size?: 'sm' | 'md' }) {
+  const { t } = useTranslation('common');
   const { status, size = 'sm' } = props;
-  const cfg = getBadgeConfig(status);
+  const cfg = getBadgeConfig(status, t);
 
   const iconSize = size === 'md' ? 'w-4 h-4' : 'w-3 h-3';
   const textSize = size === 'md' ? 'text-xs' : 'text-[10px]';

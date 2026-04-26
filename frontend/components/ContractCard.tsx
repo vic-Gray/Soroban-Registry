@@ -13,7 +13,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import React from 'react';
 import { useAnalytics } from '@/hooks/useAnalytics';
+import { useCopy } from '@/hooks/useCopy';
 import { formatContractId } from '@/lib/utils/formatting';
+import { useTranslation } from '@/lib/i18n/client';
 import VerificationBadge from '@/components/verification/VerificationBadge';
 import HealthWidget from './HealthWidget';
 import ContractQuickViewModal from './contracts/ContractQuickViewModal';
@@ -23,9 +25,10 @@ interface ContractCardProps {
 }
 
 export default function ContractCard({ contract }: ContractCardProps) {
+  const { t } = useTranslation('common');
   const { logEvent } = useAnalytics();
   const router = useRouter();
-  const [copied, setCopied] = React.useState(false);
+  const { copy, copied, isCopying } = useCopy();
   const [quickViewOpen, setQuickViewOpen] = React.useState(false);
 
   const networkColors = {
@@ -65,24 +68,23 @@ export default function ContractCard({ contract }: ContractCardProps) {
     });
   };
 
+  const copyAddress = async () => {
+    await copy(contract.contract_id, {
+      successEventName: 'contract_address_copied',
+      failureEventName: 'contract_address_copy_failed',
+      successMessage: 'Contract address copied',
+      failureMessage: 'Unable to copy contract address',
+      analyticsParams: {
+        contract_id: contract.id,
+        contract_name: contract.name,
+      },
+    });
+  };
+
   const handleCopyAddress = async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-
-    try {
-      await navigator.clipboard.writeText(contract.contract_id);
-      setCopied(true);
-      logEvent('contract_address_copied', {
-        contract_id: contract.id,
-        contract_name: contract.name,
-      });
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      logEvent('contract_address_copy_failed', {
-        contract_id: contract.id,
-        contract_name: contract.name,
-      });
-    }
+    await copyAddress();
   };
 
   return (
@@ -135,7 +137,7 @@ export default function ContractCard({ contract }: ContractCardProps) {
                 }`}
               >
                 <CheckCircle2 className="h-3 w-3" />
-                {contract.is_verified ? 'verified' : 'pending'}
+                {contract.is_verified ? t('contractCard.verified') : t('contractCard.pending')}
               </span>
             </div>
 
@@ -148,12 +150,12 @@ export default function ContractCard({ contract }: ContractCardProps) {
             <div className="mb-4 grid grid-cols-1 gap-2 text-xs text-muted-foreground sm:grid-cols-2">
               <div className="flex items-center gap-1.5">
                 <Layers3 className="h-3.5 w-3.5" />
-                <span>Deployments: {deploymentCount}</span>
+                <span>{t('contractCard.deployments')}: {deploymentCount}</span>
               </div>
               <div className="flex min-w-0 items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">
-                  Updated: {new Date(contract.updated_at).toLocaleDateString()}
+                  {t('contractCard.updated')}: {new Date(contract.updated_at).toLocaleDateString()}
                 </span>
               </div>
             </div>
@@ -171,23 +173,31 @@ export default function ContractCard({ contract }: ContractCardProps) {
                 className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
               >
                 <Eye className="h-3.5 w-3.5" />
-                <span>Quick View</span>
+                <span>{t('contractCard.quickView')}</span>
               </button>
               <button
                 type="button"
                 onClick={handleViewDetails}
                 className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
               >
-                <span>View Details</span>
+                <span>{t('contractCard.viewDetails')}</span>
                 <ExternalLink className="h-3.5 w-3.5" />
               </button>
               <button
                 type="button"
                 onClick={handleCopyAddress}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void copyAddress();
+                  }
+                }}
+                disabled={isCopying}
                 className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent"
               >
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                <span>{copied ? 'Copied' : 'Copy Address'}</span>
+                <span>{copied ? t('contractCard.copied') : t('contractCard.copyAddress')}</span>
               </button>
             </div>
           </div>

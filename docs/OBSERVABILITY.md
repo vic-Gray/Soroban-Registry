@@ -334,7 +334,11 @@ duration_ms: >500 AND path: /api/contracts/search
 
 ### Overview
 
-All HTTP requests and async operations are traced using OpenTelemetry → Jaeger.
+Distributed traces are exported via OTLP to Jaeger from backend services:
+- `soroban-registry-api`
+- `soroban-registry-indexer`
+
+Verification flows are instrumented under the verifier component spans so they are visible in request traces.
 
 ### Trace Context Propagation
 
@@ -357,12 +361,17 @@ Access Jaeger UI at: `http://localhost:16686`
    - Min Duration: `500ms`
 
 2. **Trace errors:**
-   - Service: `soroban-api`
+  - Service: `soroban-registry-api`
    - Tags: `error=true`
 
-3. **Database query spans:**
-   - Service: `soroban-api`
-   - Tags: `db.system=postgresql`
+3. **Indexer polling traces:**
+  - Service: `soroban-registry-indexer`
+  - Operation contains: `get_latest_ledger` or `get_ledger_operations`
+
+### Dependency Graph
+
+In Jaeger UI, open **Monitor > Dependencies** to view service interaction topology generated from spans.
+Trace context propagation uses W3C headers so downstream HTTP calls stay correlated in a single trace.
 
 ### Correlation IDs
 

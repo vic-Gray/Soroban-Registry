@@ -5,8 +5,6 @@ import {
   ChevronDown,
   ChevronRight,
   Zap,
-  Copy,
-  Check,
   Search,
   Terminal,
   AlertCircle,
@@ -17,6 +15,7 @@ import {
   Info,
 } from 'lucide-react';
 import { useCopy } from '@/hooks/useCopy';
+import CodeCopyButton from '@/components/CodeCopyButton';
 
 // ─── ABI shape normalisation ────────────────────────────────────────────────
 
@@ -362,17 +361,22 @@ function MethodCard({ fn, contractId, searchQuery }: MethodCardProps) {
               {simRunning ? 'Simulating…' : 'Simulate Call'}
             </button>
 
-            <button
+            <CodeCopyButton
               id={`abi-copy-snippet-${fn.name}`}
-              type="button"
-              onClick={() => copySnippet(snippet, { successEventName: 'abi_snippet_copied', analyticsParams: { method: fn.name } })}
-              className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
-            >
-              {snippetCopied
-                ? <Check className="w-4 h-4 text-green-400" />
-                : <Copy className="w-4 h-4" />}
-              {snippetCopied ? 'Copied!' : 'Copy Snippet'}
-            </button>
+              onCopy={() =>
+                copySnippet(snippet, {
+                  successEventName: 'abi_snippet_copied',
+                  failureEventName: 'abi_snippet_copy_failed',
+                  successMessage: 'Verification code copied',
+                  failureMessage: 'Unable to copy verification code',
+                  analyticsParams: { method: fn.name },
+                })
+              }
+              copied={snippetCopied}
+              idleLabel="Copy Snippet"
+              copiedLabel="Copied!"
+              className="rounded-lg px-4 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground"
+            />
           </div>
 
           {/* ── Simulation Result ───────────────────────────────────── */}

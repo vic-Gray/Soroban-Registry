@@ -13,6 +13,7 @@ mod compatibility_testing_handlers;
 mod contract_events;
 mod contributor_handlers;
 mod db_monitoring;
+mod governance_handlers;
 mod graphql;
 mod interoperability;
 mod interoperability_handlers;
@@ -40,11 +41,13 @@ mod migration_handlers;
 mod models;
 mod multisig_handlers;
 mod multisig_routes;
+mod mutation_testing_handlers; // Issue #619
 mod onchain_verification;
 #[cfg(feature = "openapi")]
 mod openapi;
 mod org_handlers;
 mod patch_handlers;
+mod plugin_marketplace_handlers;
 mod performance_handlers;
 mod rate_limit;
 mod recommendation_handlers;
@@ -61,9 +64,20 @@ mod simulation;
 mod simulation_handlers;
 mod state;
 
+mod clone_federation_handlers;
+mod formal_verification;
+mod formal_verification_handlers;
+mod graph_analysis;
+mod graph_analysis_handlers;
+mod pagination;
+mod gas_estimation_handlers;
+mod security_scan_handlers;
+mod subscription_handlers;
 mod type_safety;
 mod validation;
+mod webhook_delivery;
 mod websocket;
+mod zk_proof_handlers;
 
 use anyhow::Result;
 use axum::extract::{Request, State};
@@ -191,6 +205,9 @@ async fn main() -> Result<()> {
     // Initialize GraphQL schema
     let schema = graphql::schema::build_schema(state.clone());
 
+    // Spawn webhook delivery background task
+    webhook_delivery::spawn_webhook_delivery_task(pool.clone());
+
     // Spawn the background DB and cache monitoring task
     db_monitoring::spawn_db_monitoring_task(pool.clone(), state.cache.clone());
 
@@ -251,6 +268,7 @@ async fn main() -> Result<()> {
     // Build router
     let app = Router::new()
         .merge(routes::auth_routes())
+        .merge(routes::plugin_routes())
         .merge(routes::organization_routes())
         .merge(routes::contract_routes())
         .merge(routes::publisher_routes())
@@ -264,17 +282,28 @@ async fn main() -> Result<()> {
         .merge(routes::admin_routes())
         .merge(routes::category_routes())
         .merge(routes::compatibility_dashboard_routes())
+        .merge(routes::governance_routes())
         .merge(routes::canary_routes())
         .merge(routes::ab_test_routes())
         .merge(routes::performance_routes())
         .merge(routes::federation_routes())
+        .merge(routes::mutation_testing_routes()) // Issue #619
         .merge(multisig_routes::routes())
         .merge(routes::observability_routes())
         .merge(routes::websocket_routes())
+        .merge(routes::subscription_routes())
+        .merge(routes::graph_analysis_routes())
+        .merge(routes::formal_verification_routes())
         .merge(routes::validator_routes())
         .merge(release_notes_routes::release_notes_routes())
-        .route("/api/graphql", axum::routing::post(graphql::graphql_handler).with_state(schema))
-        .route("/api/graphql/playground", axum::routing::get(graphql::graphql_playground))
+        .route(
+            "/api/graphql",
+            axum::routing::post(graphql::graphql_handler).with_state(schema),
+        )
+        .route(
+            "/api/graphql/playground",
+            axum::routing::get(graphql::graphql_playground),
+        )
         .nest("/api", activity_feed_routes::routes())
         .fallback(handlers::route_not_found)
         .layer(middleware::from_fn(

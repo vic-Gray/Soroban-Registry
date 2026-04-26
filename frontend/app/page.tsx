@@ -5,20 +5,23 @@ import { api } from '@/lib/api';
 import ContractCard from '@/components/ContractCard';
 import ContractCardSkeleton from '@/components/ContractCardSkeleton';
 import LoadingSkeleton from '@/components/LoadingSkeleton';
-import { Search, Package, CheckCircle, Users, ArrowRight, Sparkles, Shield, GitBranch, Upload, Terminal, Github, MessageCircle, BookOpen, Copy, Check, Zap } from 'lucide-react';
+import { Search, Package, CheckCircle, Users, ArrowRight, Sparkles, Shield, GitBranch, Upload, Terminal, Github, MessageCircle, BookOpen, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import Navbar from '@/components/Navbar';
 import ActivityFeed from '@/components/ActivityFeed';
+import { useCopy } from '@/hooks/useCopy';
+import CodeCopyButton from '@/components/CodeCopyButton';
 
 export default function Home() {
+  const { t } = useTranslation('common');
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { logEvent } = useAnalytics();
-  const [codeCopied, setCodeCopied] = useState(false);
+  const { copy, copied, isCopying } = useCopy();
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['stats'],
@@ -43,9 +46,13 @@ export default function Home() {
 
   const handleCopyCode = async () => {
     const code = `cargo install soroban-registry-cli\nsoroban-registry search token\nsoroban-registry install my-token-contract`;
-    await navigator.clipboard.writeText(code);
-    setCodeCopied(true);
-    setTimeout(() => setCodeCopied(false), 2000);
+    await copy(code, {
+      successEventName: 'landing_cli_code_copied',
+      failureEventName: 'landing_cli_code_copy_failed',
+      successMessage: 'CLI example copied',
+      failureMessage: 'Unable to copy CLI example',
+      analyticsParams: { source: 'home_cli_block' },
+    });
   };
 
   useEffect(() => {
@@ -87,16 +94,15 @@ export default function Home() {
             </div>
 
             <h1 className="text-5xl sm:text-6xl font-bold mb-6 leading-tight">
-              Discover & Publish
+              {t('home.title_part1')}
               <br />
               <span className="text-gradient">
-                Soroban Contracts
+                {t('home.title_part2')}
               </span>
             </h1>
 
             <p className="text-xl text-muted-foreground mb-12">
-              The trusted registry for verified smart contracts on the Stellar network.
-              Find, deploy, and share Soroban contracts with the community.
+              {t('home.subtitle')}
             </p>
 
             {/* Search Bar */}
@@ -177,10 +183,10 @@ export default function Home() {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
         <div className="text-center mb-16">
           <h2 className="text-3xl sm:text-4xl font-bold mb-4">
-            Why builders choose the <span className="text-gradient">Registry</span>
+            {t('home.whyTitle')} <span className="text-gradient">Registry</span>
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Everything you need to discover, verify, and integrate Soroban smart contracts.
+            {t('home.whySubtitle')}
           </p>
         </div>
 
@@ -189,9 +195,9 @@ export default function Home() {
             <div className="w-12 h-12 rounded-xl bg-green-500/10 flex items-center justify-center mb-6">
               <Shield className="w-6 h-6 text-green-500" />
             </div>
-            <h3 className="text-xl font-semibold mb-3">Verified Contracts</h3>
+            <h3 className="text-xl font-semibold mb-3">{t('home.features.verified.title')}</h3>
             <p className="text-muted-foreground leading-relaxed">
-              Every contract goes through verification. Source code validation, security scoring, and health monitoring ensure you&apos;re using battle-tested code.
+              {t('home.features.verified.desc')}
             </p>
           </div>
 
@@ -199,9 +205,9 @@ export default function Home() {
             <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-6">
               <GitBranch className="w-6 h-6 text-primary" />
             </div>
-            <h3 className="text-xl font-semibold mb-3">Dependency Graph</h3>
+            <h3 className="text-xl font-semibold mb-3">{t('home.features.graph.title')}</h3>
             <p className="text-muted-foreground leading-relaxed">
-              Visualize the entire contract ecosystem. Understand dependencies, discover related contracts, and trace the impact of changes across the network.
+              {t('home.features.graph.desc')}
             </p>
           </div>
 
@@ -209,9 +215,9 @@ export default function Home() {
             <div className="w-12 h-12 rounded-xl bg-secondary/10 flex items-center justify-center mb-6">
               <Upload className="w-6 h-6 text-secondary" />
             </div>
-            <h3 className="text-xl font-semibold mb-3">Easy Publishing</h3>
+            <h3 className="text-xl font-semibold mb-3">{t('home.features.easy.title')}</h3>
             <p className="text-muted-foreground leading-relaxed">
-              Publish contracts in seconds via CLI or web interface. Add metadata, examples, and documentation to help others integrate your work.
+              {t('home.features.easy.desc')}
             </p>
           </div>
         </div>
@@ -221,13 +227,13 @@ export default function Home() {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="flex items-center justify-between mb-8">
           <h2 className="text-3xl font-bold">
-            Recent Contracts
+            {t('home.recent')}
           </h2>
           <Link
             href="/contracts"
             className="flex items-center gap-2 text-primary hover:opacity-80 font-medium transition-opacity"
           >
-            View all
+            {t('home.viewAll')}
             <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
@@ -351,14 +357,14 @@ export default function Home() {
                 <Terminal className="w-4 h-4 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground font-mono">Terminal</span>
               </div>
-              <button
-                onClick={handleCopyCode}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
-                aria-label={codeCopied ? 'Code copied' : 'Copy code'}
-              >
-                {codeCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                {codeCopied ? 'Copied' : 'Copy'}
-              </button>
+              <CodeCopyButton
+                onCopy={handleCopyCode}
+                copied={copied}
+                disabled={isCopying}
+                idleLabel="Copy"
+                copiedLabel="Copied"
+                className="border-white/10 bg-transparent text-gray-400 hover:bg-white/10 hover:text-white"
+              />
             </div>
             <div className="p-6 font-mono text-sm leading-relaxed">
               <div className="text-gray-500 mb-1"># Install the CLI</div>
@@ -432,15 +438,15 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
             <div>
-              <h4 className="font-semibold text-foreground mb-4 text-sm uppercase tracking-wider">Registry</h4>
+              <h4 className="font-semibold text-foreground mb-4 text-sm uppercase tracking-wider">{t('footer.registry')}</h4>
               <ul className="space-y-3 text-sm">
-                <li><Link href="/contracts" className="text-muted-foreground hover:text-foreground transition-colors">Browse Contracts</Link></li>
+                <li><Link href="/contracts" className="text-muted-foreground hover:text-foreground transition-colors">{t('home.viewContracts')}</Link></li>
                 <li><Link href="/templates" className="text-muted-foreground hover:text-foreground transition-colors">Templates</Link></li>
                 <li><Link href="/publish" className="text-muted-foreground hover:text-foreground transition-colors">Publish</Link></li>
               </ul>
             </div>
             <div>
-              <h4 className="font-semibold text-foreground mb-4 text-sm uppercase tracking-wider">Explore</h4>
+              <h4 className="font-semibold text-foreground mb-4 text-sm uppercase tracking-wider">{t('footer.explore')}</h4>
               <ul className="space-y-3 text-sm">
                 <li><Link href="/graph" className="text-muted-foreground hover:text-foreground transition-colors">Dependency Graph</Link></li>
                 <li><Link href="/stats" className="text-muted-foreground hover:text-foreground transition-colors">Statistics</Link></li>
@@ -448,7 +454,7 @@ export default function Home() {
               </ul>
             </div>
             <div>
-              <h4 className="font-semibold text-foreground mb-4 text-sm uppercase tracking-wider">Developers</h4>
+              <h4 className="font-semibold text-foreground mb-4 text-sm uppercase tracking-wider">{t('footer.developers')}</h4>
               <ul className="space-y-3 text-sm">
                 <li><a href="https://developers.stellar.org/docs/smart-contracts" target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">Soroban Docs</a></li>
                 <li><a href="https://stellar.org/soroban" target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">About Soroban</a></li>
@@ -456,7 +462,7 @@ export default function Home() {
               </ul>
             </div>
             <div>
-              <h4 className="font-semibold text-foreground mb-4 text-sm uppercase tracking-wider">Community</h4>
+              <h4 className="font-semibold text-foreground mb-4 text-sm uppercase tracking-wider">{t('footer.community')}</h4>
               <ul className="space-y-3 text-sm">
                 <li><a href="https://discord.com/invite/stellardev" target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">Discord</a></li>
                 <li><a href="https://twitter.com/BuildOnStellar" target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">Twitter</a></li>
@@ -468,9 +474,9 @@ export default function Home() {
           <div className="border-t border-border pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
               <Package className="w-4 h-4 text-primary" />
-              <span>Built for the Stellar Developer Community</span>
+              <span>{t('footer.builtFor')}</span>
             </div>
-            <p className="text-sm text-muted-foreground">Powered by Soroban Smart Contracts</p>
+            <p className="text-sm text-muted-foreground">{t('footer.poweredBy')}</p>
           </div>
         </div>
       </footer>

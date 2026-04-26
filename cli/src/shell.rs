@@ -1,4 +1,5 @@
 use anyhow::Result;
+use crate::Cli;
 use clap::CommandFactory;
 use clap::Parser;
 use colored::Colorize;

@@ -13,6 +13,10 @@ const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const CONFIG_DIR_NAME: &str = ".soroban-registry";
 const CONFIG_FILE_NAME: &str = "config.toml";
 const LEGACY_CONFIG_FILE_NAME: &str = ".soroban-registry.toml";
+const ENV_NETWORK: &str = "SOROBAN_REGISTRY_NETWORK";
+const ENV_API_URL: &str = "SOROBAN_REGISTRY_API_URL";
+const ENV_API_BASE: &str = "SOROBAN_REGISTRY_API_BASE";
+const ENV_TIMEOUT: &str = "SOROBAN_REGISTRY_TIMEOUT";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -71,11 +75,8 @@ pub struct RuntimeConfig {
 }
 
 pub fn resolve_network(cli_network: Option<String>) -> Result<Network> {
-    let config = load_defaults_section()?;
-    match cli_network.or(config.network) {
-        Some(value) => value.parse::<Network>(),
-        None => Ok(Network::Testnet),
-    }
+    let cfg = resolve_runtime_config(cli_network, None, None)?;
+    Ok(cfg.network)
 }
 
 pub fn resolve_runtime_config(
@@ -83,26 +84,15 @@ pub fn resolve_runtime_config(
     cli_api_base: Option<String>,
     cli_timeout: Option<u64>,
 ) -> Result<RuntimeConfig> {
-    let config = load_defaults_section()?;
-
-    let network = match cli_network.or(config.network) {
-        Some(value) => value.parse::<Network>()?,
-        None => Network::Testnet,
-    };
-
-    let api_base = cli_api_base
-        .or(config.api_base)
-        .unwrap_or_else(|| DEFAULT_API_BASE.to_string());
-
-    let timeout = cli_timeout
-        .or(config.timeout)
-        .unwrap_or(DEFAULT_TIMEOUT_SECS);
-
-    Ok(RuntimeConfig {
-        network,
-        api_base,
-        timeout,
-    })
+    let defaults = load_defaults_section()?;
+    let env_overrides = read_env_overrides()?;
+    resolve_runtime_config_with_sources(
+        cli_network,
+        cli_api_base,
+        cli_timeout,
+        env_overrides,
+        defaults,
+    )
 }
 
 pub fn show_config() -> Result<()> {
@@ -160,6 +150,96 @@ fn load_defaults_section() -> Result<DefaultsSection> {
 
     let config = load_config_file(&path)?;
     Ok(config.defaults.unwrap_or_default())
+}
+
+#[derive(Debug, Clone, Default)]
+struct EnvOverrides {
+    network: Option<String>,
+    api_base: Option<String>,
+    timeout: Option<u64>,
+}
+
+fn resolve_runtime_config_with_sources(
+    cli_network: Option<String>,
+    cli_api_base: Option<String>,
+    cli_timeout: Option<u64>,
+    env_overrides: EnvOverrides,
+    defaults: DefaultsSection,
+) -> Result<RuntimeConfig> {
+    let network_raw = cli_network
+        .or(env_overrides.network)
+        .or(defaults.network)
+        .unwrap_or_else(|| "testnet".to_string());
+    let network = network_raw.parse::<Network>()?;
+
+    let api_base_raw = cli_api_base
+        .or(env_overrides.api_base)
+        .or(defaults.api_base)
+        .unwrap_or_else(|| DEFAULT_API_BASE.to_string());
+    let api_base = validate_api_base(&api_base_raw)?;
+
+    let timeout = cli_timeout
+        .or(env_overrides.timeout)
+        .or(defaults.timeout)
+        .unwrap_or(DEFAULT_TIMEOUT_SECS);
+    validate_timeout(timeout)?;
+
+    Ok(RuntimeConfig {
+        network,
+        api_base,
+        timeout,
+    })
+}
+
+fn read_env_overrides() -> Result<EnvOverrides> {
+    let network = read_env_string(ENV_NETWORK);
+
+    // Keep support for the existing API URL variable while also allowing API_BASE.
+    let api_base = read_env_string(ENV_API_URL).or_else(|| read_env_string(ENV_API_BASE));
+
+    let timeout = match read_env_string(ENV_TIMEOUT) {
+        Some(value) => Some(parse_timeout(&value, ENV_TIMEOUT)?),
+        None => None,
+    };
+
+    Ok(EnvOverrides {
+        network,
+        api_base,
+        timeout,
+    })
+}
+
+fn read_env_string(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+fn parse_timeout(raw: &str, source: &str) -> Result<u64> {
+    let timeout = raw
+        .parse::<u64>()
+        .with_context(|| format!("Invalid value for {}: `{}` (expected positive integer)", source, raw))?;
+    validate_timeout(timeout)?;
+    Ok(timeout)
+}
+
+fn validate_timeout(timeout: u64) -> Result<()> {
+    if timeout == 0 {
+        anyhow::bail!("timeout must be greater than 0");
+    }
+    Ok(())
+}
+
+fn validate_api_base(raw: &str) -> Result<String> {
+    let api_base = raw.trim();
+    if api_base.is_empty() {
+        anyhow::bail!("api_base must not be empty");
+    }
+    if !(api_base.starts_with("http://") || api_base.starts_with("https://")) {
+        anyhow::bail!("api_base must start with http:// or https://");
+    }
+    Ok(api_base.to_string())
 }
 
 fn load_config_file(path: &Path) -> Result<ConfigFile> {
@@ -310,5 +390,81 @@ timeout = 55
 
         assert!(legacy_path.exists());
         assert_eq!(fs::read_to_string(&current_path).unwrap(), "current = true");
+    }
+
+    #[test]
+    fn test_resolve_runtime_precedence_cli_over_env_over_config() {
+        let defaults = DefaultsSection {
+            network: Some("futurenet".to_string()),
+            api_base: Some("http://config.example".to_string()),
+            timeout: Some(45),
+        };
+        let env = EnvOverrides {
+            network: Some("mainnet".to_string()),
+            api_base: Some("https://env.example".to_string()),
+            timeout: Some(90),
+        };
+
+        let cfg = resolve_runtime_config_with_sources(
+            Some("testnet".to_string()),
+            Some("https://cli.example".to_string()),
+            Some(120),
+            env,
+            defaults,
+        )
+        .unwrap();
+
+        assert_eq!(cfg.network, Network::Testnet);
+        assert_eq!(cfg.api_base, "https://cli.example");
+        assert_eq!(cfg.timeout, 120);
+    }
+
+    #[test]
+    fn test_resolve_runtime_uses_env_when_cli_missing() {
+        let defaults = DefaultsSection {
+            network: Some("futurenet".to_string()),
+            api_base: Some("http://config.example".to_string()),
+            timeout: Some(45),
+        };
+        let env = EnvOverrides {
+            network: Some("mainnet".to_string()),
+            api_base: Some("https://env.example".to_string()),
+            timeout: Some(90),
+        };
+
+        let cfg = resolve_runtime_config_with_sources(None, None, None, env, defaults).unwrap();
+
+        assert_eq!(cfg.network, Network::Mainnet);
+        assert_eq!(cfg.api_base, "https://env.example");
+        assert_eq!(cfg.timeout, 90);
+    }
+
+    #[test]
+    fn test_resolve_runtime_rejects_invalid_api_base() {
+        let defaults = DefaultsSection {
+            network: Some("testnet".to_string()),
+            api_base: Some("localhost:3001".to_string()),
+            timeout: Some(30),
+        };
+
+        let err = resolve_runtime_config_with_sources(None, None, None, EnvOverrides::default(), defaults)
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("api_base must start with http:// or https://")
+        );
+    }
+
+    #[test]
+    fn test_resolve_runtime_rejects_zero_timeout() {
+        let defaults = DefaultsSection {
+            network: Some("testnet".to_string()),
+            api_base: Some("http://localhost:3001".to_string()),
+            timeout: Some(0),
+        };
+
+        let err = resolve_runtime_config_with_sources(None, None, None, EnvOverrides::default(), defaults)
+            .unwrap_err();
+        assert!(err.to_string().contains("timeout must be greater than 0"));
     }
 }

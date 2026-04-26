@@ -52,16 +52,16 @@ use patch::Severity;
 #[command(name = "soroban-registry", version, about, long_about = None)]
 pub struct Cli {
     /// Registry API URL
-    #[arg(
-        long,
-        env = "SOROBAN_REGISTRY_API_URL",
-        default_value = "http://localhost:3001"
-    )]
+    #[arg(long, global = true, default_value = "")]
     pub api_url: String,
 
     /// Stellar network to use (mainnet | testnet | futurenet)
     #[arg(long, global = true)]
     pub network: Option<String>,
+
+    /// Global timeout for network/API operations (seconds)
+    #[arg(long, global = true)]
+    pub timeout: Option<u64>,
 
     /// Enable verbose output (shows HTTP requests, responses, and debug info)
     #[arg(long, short = 'v', global = true)]
@@ -1416,7 +1416,17 @@ pub enum UpgradeSubcommands {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+
+    let cli_api_base = if cli.api_url.trim().is_empty() {
+        None
+    } else {
+        Some(cli.api_url.clone())
+    };
+    let runtime = config::resolve_runtime_config(cli.network.clone(), cli_api_base, cli.timeout)?;
+    cli.api_url = runtime.api_base;
+    cli.network = Some(runtime.network.to_string());
+    cli.timeout = Some(runtime.timeout);
 
     // ── Initialise logger ─────────────────────────────────────────────────────
     // --verbose / -v  →  DEBUG level (shows HTTP calls, payloads, timing)

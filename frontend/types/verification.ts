@@ -1,4 +1,5 @@
 export type VerificationStatus = 'draft' | 'submitted' | 'under_review' | 'approved' | 'rejected';
+export type VerificationLogLevel = 'info' | 'warn' | 'error' | 'debug';
 
 export type SorobanNetwork = 'mainnet' | 'testnet' | 'futurenet';
 
@@ -39,6 +40,24 @@ export type StatusEvent = {
   message?: string;
 };
 
+export type VerificationLogEntry = {
+  id: string;
+  at: string;
+  level: VerificationLogLevel;
+  phase: 'submission' | 'precheck' | 'analysis' | 'review' | 'decision' | 'retry';
+  message: string;
+  output?: string;
+};
+
+export type VerificationMetrics = {
+  attemptCount: number;
+  checksPassed: number;
+  checksFailed: number;
+  durationMs: number;
+  coveragePct: number;
+  lastUpdatedAt: string;
+};
+
 export type VerificationRequest = {
   id: string;
   createdAt: string;
@@ -46,6 +65,9 @@ export type VerificationRequest = {
   status: VerificationStatus;
   submission: VerificationSubmission;
   statusHistory: StatusEvent[];
+  logs: VerificationLogEntry[];
+  metrics: VerificationMetrics;
+  lastErrorDetails?: string;
 };
 
 export type VerificationStatusResponse = {

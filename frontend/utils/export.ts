@@ -1,4 +1,4 @@
-import type { ComparableContract, ComparisonMetricKey } from '@/utils/comparison';
+import type { ComparableContract } from '@/utils/comparison';
 
 function escapeCsvCell(value: string) {
   if (value.includes('"') || value.includes(',') || value.includes('\n') || value.includes('\r')) {
@@ -10,7 +10,7 @@ function escapeCsvCell(value: string) {
 export function buildComparisonCsv(
   contracts: ComparableContract[],
   metrics: Array<{
-    key: ComparisonMetricKey;
+    key: string;
     label: string;
     getValue: (c: ComparableContract) => string | number | boolean;
   }>,
@@ -39,7 +39,7 @@ export function downloadTextFile(filename: string, content: string, mimeType: st
 export function exportComparisonToCsv(
   contracts: ComparableContract[],
   metrics: Array<{
-    key: ComparisonMetricKey;
+    key: string;
     label: string;
     getValue: (c: ComparableContract) => string | number | boolean;
   }>,
@@ -50,7 +50,7 @@ export function exportComparisonToCsv(
 }
 
 export function exportComparisonToPdf(contracts: ComparableContract[], rows: Array<{ label: string; values: string[] }>) {
-  const title = 'Soroban Registry — Contract Comparison';
+  const title = 'Soroban Registry - Contract Comparison';
   const html = `<!doctype html>
   <html>
     <head>
@@ -68,7 +68,7 @@ export function exportComparisonToPdf(contracts: ComparableContract[], rows: Arr
     </head>
     <body>
       <h1>${title}</h1>
-      <p>Compared: ${contracts.map((c) => c.name).join(' • ')}</p>
+      <p>Compared: ${contracts.map((c) => c.name).join(' | ')}</p>
       <table>
         <thead>
           <tr>

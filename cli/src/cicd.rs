@@ -104,7 +104,8 @@ pub async fn run_pipeline(
         false,
         0.0,
         false,
-    ).await?;
+    )
+    .await?;
 
     // Step 5: Verify
     if !json {

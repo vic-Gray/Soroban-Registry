@@ -1,4 +1,4 @@
-export type SortBy = 'name' | 'created_at' | 'updated_at' | 'popularity' | 'deployments' | 'interactions' | 'relevance' | 'downloads';
+import type { SortBy } from '@/app/contracts/sort-utils';
 
 interface SortDropdownProps {
   value: SortBy;
@@ -7,13 +7,10 @@ interface SortDropdownProps {
 }
 
 const SORT_OPTIONS: { value: SortBy; label: string }[] = [
-  { value: 'created_at', label: 'Newest First' },
-  { value: 'updated_at', label: 'Recently Updated' },
-  { value: 'popularity', label: 'Most Popular' },
-  { value: 'deployments', label: 'Most Deployed' },
-  { value: 'interactions', label: 'Most Interactions' },
-  { value: 'downloads', label: 'Downloads' },
+  { value: 'created_at', label: 'Date' },
   { value: 'name', label: 'Name' },
+  { value: 'popularity', label: 'Popularity' },
+  { value: 'rating', label: 'Rating' },
 ];
 
 export function SortDropdown({ value, onChange, showRelevance }: SortDropdownProps) {

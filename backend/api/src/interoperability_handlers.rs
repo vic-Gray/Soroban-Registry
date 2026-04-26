@@ -11,13 +11,13 @@ use crate::{
     state::AppState,
 };
 
-/// GET /api/contracts/:id/compatibility
+/// GET /api/contracts/:id/interoperability
 ///
 /// Returns protocol compliance, interoperable contract suggestions, and graph relationships
 /// for a single contract.
 #[utoipa::path(
     get,
-    path = "/api/contracts/{id}/compatibility",
+    path = "/api/contracts/{id}/interoperability",
     params(("id" = String, Path, description = "Contract UUID")),
     responses(
         (status = 200, description = "Interoperability analysis", body = ContractInteroperabilityResponse),

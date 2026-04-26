@@ -1,4 +1,7 @@
 import type {
+  VerificationLogEntry,
+  VerificationLogLevel,
+  VerificationMetrics,
   StatusEvent,
   VerificationRequest,
   VerificationStatus,
@@ -31,7 +34,16 @@ function safeParse<T>(raw: string | null): T | null {
 function readAll(): StoredRequest[] {
   if (typeof window === 'undefined') return [];
   const parsed = safeParse<StoredRequest[]>(window.localStorage.getItem(STORAGE_KEY));
-  return Array.isArray(parsed) ? parsed : [];
+  if (!Array.isArray(parsed)) return [];
+  return parsed.map((item) => {
+    const createdAt = item.createdAt || nowIso();
+    return {
+      ...item,
+      logs: Array.isArray(item.logs) ? item.logs : [],
+      metrics: item.metrics || baseMetrics(createdAt),
+      statusHistory: Array.isArray(item.statusHistory) ? item.statusHistory : [],
+    };
+  });
 }
 
 function writeAll(next: StoredRequest[]): void {
@@ -63,6 +75,33 @@ function dispatchStatusChange(payload: VerificationStatusChangeEvent): void {
   window.dispatchEvent(new CustomEvent<VerificationStatusChangeEvent>(EVENT_NAME, { detail: payload }));
 }
 
+function makeLogEntry(params: {
+  level: VerificationLogLevel;
+  phase: VerificationLogEntry['phase'];
+  message: string;
+  output?: string;
+}): VerificationLogEntry {
+  return {
+    id: `log_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`,
+    at: nowIso(),
+    level: params.level,
+    phase: params.phase,
+    message: params.message,
+    output: params.output,
+  };
+}
+
+function baseMetrics(createdAt: string): VerificationMetrics {
+  return {
+    attemptCount: 1,
+    checksPassed: 0,
+    checksFailed: 0,
+    durationMs: 0,
+    coveragePct: 0,
+    lastUpdatedAt: createdAt,
+  };
+}
+
 export function subscribeToVerificationStatusChanges(handler: (evt: VerificationStatusChangeEvent) => void): () => void {
   if (typeof window === 'undefined') return () => undefined;
 
@@ -78,11 +117,34 @@ export function subscribeToVerificationStatusChanges(handler: (evt: Verification
 
 function pushStatus(request: StoredRequest, nextStatus: VerificationStatus, message?: string): StoredRequest {
   const next: StatusEvent = { status: nextStatus, at: nowIso(), message };
+  const statusLog = makeLogEntry({
+    level: nextStatus === 'rejected' ? 'error' : 'info',
+    phase: nextStatus === 'submitted' ? 'submission' : nextStatus === 'under_review' ? 'review' : 'decision',
+    message: message || `Status changed to ${nextStatus}`,
+    output: JSON.stringify({ status: nextStatus, at: next.at }, null, 2),
+  });
+  const elapsedMs = Math.max(100, new Date(next.at).getTime() - new Date(request.createdAt).getTime());
+  const checksPassed = nextStatus === 'approved' ? 16 : nextStatus === 'under_review' ? 8 : request.metrics.checksPassed;
+  const checksFailed = nextStatus === 'rejected' ? Math.max(1, request.metrics.checksFailed) : request.metrics.checksFailed;
+  const coveragePct = nextStatus === 'approved' ? 100 : nextStatus === 'under_review' ? 82 : request.metrics.coveragePct;
   return {
     ...request,
     status: nextStatus,
     updatedAt: next.at,
     statusHistory: [...request.statusHistory, next],
+    logs: [...request.logs, statusLog],
+    metrics: {
+      ...request.metrics,
+      checksPassed,
+      checksFailed,
+      durationMs: elapsedMs,
+      coveragePct,
+      lastUpdatedAt: next.at,
+    },
+    lastErrorDetails:
+      nextStatus === 'rejected'
+        ? 'Static analyzer detected an unbounded authorization path in transfer() under edge-case call ordering.'
+        : undefined,
   };
 }
 
@@ -138,6 +200,29 @@ export async function submitVerification(params: { submission: VerificationSubmi
     status: 'submitted',
     submission: params.submission,
     statusHistory: [{ status: 'submitted', at: createdAt, message: 'Verification submitted.' }],
+    logs: [
+      makeLogEntry({
+        level: 'info',
+        phase: 'submission',
+        message: 'Submission accepted and queued.',
+        output: JSON.stringify(
+          {
+            network: params.submission.network,
+            documents: params.submission.documents.length,
+            riskLevel: params.submission.riskLevel,
+          },
+          null,
+          2
+        ),
+      }),
+      makeLogEntry({
+        level: 'debug',
+        phase: 'precheck',
+        message: 'Running deterministic mock validators.',
+        output: 'validateContractAddress=true\nvalidateNetwork=true\nvalidateDocumentSet=true',
+      }),
+    ],
+    metrics: baseMetrics(createdAt),
   };
 
   const all = readAll();
@@ -192,4 +277,41 @@ export function simulateStatusProgression(params: { id: string }): () => void {
     active = false;
     for (const id of timeouts) window.clearTimeout(id);
   };
+}
+
+export async function retryVerification(params: { id: string }): Promise<VerificationRequest> {
+  const now = nowIso();
+  const updated = updateRequest(params.id, (prev) => {
+    const cleared: StoredRequest = {
+      ...prev,
+      status: 'submitted',
+      updatedAt: now,
+      statusHistory: [...prev.statusHistory, { status: 'submitted', at: now, message: 'Retry requested.' }],
+      scheduledTransitions: [],
+      logs: [
+        ...prev.logs,
+        makeLogEntry({
+          level: 'warn',
+          phase: 'retry',
+          message: 'Retry initiated after failure.',
+          output: prev.lastErrorDetails ? `previous_error="${prev.lastErrorDetails}"` : 'previous_error="n/a"',
+        }),
+      ],
+      metrics: {
+        ...prev.metrics,
+        attemptCount: prev.metrics.attemptCount + 1,
+        checksFailed: 0,
+        coveragePct: 0,
+        durationMs: 0,
+        lastUpdatedAt: now,
+      },
+      lastErrorDetails: undefined,
+    };
+    return ensureProgressionScheduled(cleared);
+  });
+
+  if (!updated) throw new Error('Unable to retry verification request.');
+  await new Promise((r) => setTimeout(r, 300));
+  dispatchStatusChange({ id: params.id, status: 'submitted' });
+  return updated;
 }

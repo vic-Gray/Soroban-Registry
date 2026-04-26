@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { InteractionsQueryParams } from '@/lib/api';
+import { formatPublicKey, formatTransactionHash } from '@/lib/utils/formatting';
 import {
   BarChart,
   Bar,
@@ -144,7 +145,7 @@ export default function InteractionHistorySection({ contractId }: InteractionHis
                       className="flex justify-between items-center text-sm"
                     >
                       <span className="font-mono text-muted-foreground truncate max-w-[140px]" title={u.address}>
-                        {u.address.slice(0, 8)}…{u.address.slice(-6)}
+                        {formatPublicKey(u.address)}
                       </span>
                       <span className="font-medium text-foreground tabular-nums">
                         {u.count}
@@ -231,13 +232,13 @@ export default function InteractionHistorySection({ contractId }: InteractionHis
                         className="border-b border-border"
                       >
                         <td className="py-2 pr-4 font-mono text-xs text-muted-foreground max-w-[120px] truncate" title={row.account ?? ''}>
-                          {row.account ? `${row.account.slice(0, 6)}…${row.account.slice(-4)}` : '—'}
+                          {row.account ? formatPublicKey(row.account) : '—'}
                         </td>
                         <td className="py-2 pr-4 font-medium text-foreground">
                           {row.method ?? '—'}
                         </td>
                         <td className="py-2 pr-4 font-mono text-xs text-muted-foreground max-w-[80px] truncate" title={row.transaction_hash ?? ''}>
-                          {row.transaction_hash ? `${row.transaction_hash.slice(0, 8)}…` : '—'}
+                          {row.transaction_hash ? formatTransactionHash(row.transaction_hash) : '—'}
                         </td>
                         <td className="py-2 pr-4 text-muted-foreground whitespace-nowrap">
                           {new Date(row.created_at).toLocaleString()}

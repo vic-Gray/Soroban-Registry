@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { Comment } from '@/lib/api';
+import { formatPublicKey } from '@/lib/utils/formatting';
 import { ChevronUp, ChevronDown, MessageSquare, Flag, AlertTriangle } from 'lucide-react';
 
 interface ContractCommentsProps {
@@ -101,8 +102,7 @@ function formatRelative(iso: string): string {
 }
 
 function truncateAddress(addr: string): string {
-  if (addr.length <= 12) return addr;
-  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+  return formatPublicKey(addr);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -17,6 +17,7 @@ type Props = {
 function toneClass(tone: CellTone) {
   if (tone === 'best') return 'text-green-700 dark:text-green-300';
   if (tone === 'worst') return 'text-red-700 dark:text-red-300';
+  if (tone === 'different') return 'text-amber-700 dark:text-amber-300';
   return 'text-foreground';
 }
 
@@ -39,6 +40,16 @@ export default function MobileComparisonCard({ contract, metrics, tones }: Props
             </div>
           );
         })}
+      </div>
+      <div className="mt-4 grid grid-cols-1 gap-3">
+        <div className="rounded-xl border border-border bg-accent/40 p-3">
+          <div className="text-[11px] font-semibold text-muted-foreground">Latest version</div>
+          <div className="mt-1 text-sm font-semibold text-foreground">{contract.latestVersion}</div>
+        </div>
+        <div className="rounded-xl border border-border bg-accent/40 p-3">
+          <div className="text-[11px] font-semibold text-muted-foreground">ABI methods</div>
+          <div className="mt-1 text-sm font-semibold text-foreground">{contract.abiMethods.length}</div>
+        </div>
       </div>
     </div>
   );

@@ -16,9 +16,17 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use opentelemetry::global;
+use opentelemetry::propagation::{Extractor, Injector};
+use opentelemetry::trace::TraceContextExt;
+use opentelemetry::KeyValue;
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::propagation::TraceContextPropagator;
+use opentelemetry_sdk::Resource;
 use std::net::SocketAddr;
 use std::time::Instant;
 use tracing::Instrument;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
 /// Paths that should never be logged (health checks, readiness probes, etc.)
@@ -48,6 +56,7 @@ pub async fn tracing_middleware(
     req.extensions_mut().insert(RequestId(request_id.clone()));
 
     let start = Instant::now();
+    let parent_context = extract_remote_context(req.headers());
     let span = tracing::info_span!(
         "http_request",
         request_id = %request_id,
@@ -55,6 +64,7 @@ pub async fn tracing_middleware(
         path = %path,
         user_ip = %user_ip
     );
+    span.set_parent(parent_context);
     let mut response = CURRENT_REQUEST_ID
         .scope(request_id.clone(), next.run(req).instrument(span.clone()))
         .await;
@@ -127,6 +137,44 @@ pub fn attach_request_id_headers(headers: &mut HeaderMap, request_id: &str) {
     }
 }
 
+pub fn inject_current_trace_context(headers: &mut reqwest::header::HeaderMap) {
+    let context = opentelemetry::Context::current();
+    global::get_text_map_propagator(|propagator| {
+        propagator.inject_context(&context, &mut ReqwestHeaderInjector(headers));
+    });
+}
+
+fn extract_remote_context(headers: &HeaderMap) -> opentelemetry::Context {
+    global::get_text_map_propagator(|propagator| {
+        propagator.extract(&AxumHeaderExtractor(headers))
+    })
+}
+
+struct AxumHeaderExtractor<'a>(&'a HeaderMap);
+
+impl Extractor for AxumHeaderExtractor<'_> {
+    fn get(&self, key: &str) -> Option<&str> {
+        self.0.get(key).and_then(|value| value.to_str().ok())
+    }
+
+    fn keys(&self) -> Vec<&str> {
+        self.0.keys().map(|key| key.as_str()).collect()
+    }
+}
+
+struct ReqwestHeaderInjector<'a>(&'a mut reqwest::header::HeaderMap);
+
+impl Injector for ReqwestHeaderInjector<'_> {
+    fn set(&mut self, key: &str, value: String) {
+        if let (Ok(header_name), Ok(header_value)) = (
+            reqwest::header::HeaderName::from_bytes(key.as_bytes()),
+            reqwest::header::HeaderValue::from_str(&value),
+        ) {
+            self.0.insert(header_name, header_value);
+        }
+    }
+}
+
 // ── Request ID extractor ──────────────────────────────────────────────────────
 
 /// A newtype wrapper stored in request extensions so downstream code can
@@ -156,16 +204,48 @@ impl RequestId {
 pub fn init_json_tracing() {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+    let service_name = std::env::var("OTEL_SERVICE_NAME")
+        .unwrap_or_else(|_| "soroban-registry-api".to_string());
+    let otlp_endpoint = std::env::var("OTLP_ENDPOINT")
+        .or_else(|_| std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT"))
+        .ok();
+
+    global::set_text_map_propagator(TraceContextPropagator::new());
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "api=info,tower_http=info".into());
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .with_current_span(true);
+
+    if let Some(endpoint) = otlp_endpoint {
+        let trace_config = opentelemetry_sdk::trace::Config::default().with_resource(
+            Resource::new(vec![KeyValue::new("service.name", service_name)]),
+        );
+
+        match opentelemetry_otlp::new_pipeline()
+            .tracing()
+            .with_trace_config(trace_config)
+            .with_exporter(opentelemetry_otlp::new_exporter().tonic().with_endpoint(endpoint))
+            .install_batch(opentelemetry_sdk::runtime::Tokio)
+        {
+            Ok(tracer) => {
+                tracing_subscriber::registry()
+                    .with(env_filter)
+                    .with(fmt_layer)
+                    .with(tracing_opentelemetry::layer().with_tracer(tracer))
+                    .init();
+                return;
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "Failed to initialize OTLP exporter; falling back to log-only tracing");
+            }
+        }
+    }
+
     tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "api=info,tower_http=info".into()),
-        )
-        .with(
-            tracing_subscriber::fmt::layer()
-                .json()
-                .with_current_span(true),
-        )
+        .with(env_filter)
+        .with(fmt_layer)
         .init();
 }
 

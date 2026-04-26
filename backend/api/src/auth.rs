@@ -8,10 +8,62 @@ use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
+use uuid::Uuid;
 
 use crate::error::ApiError;
 
 pub const MIN_JWT_SECRET_LEN: usize = 32;
+
+/// Authenticated user extracted from a valid Bearer JWT.
+/// The `sub` claim is expected to be the publisher's Stellar address,
+/// and `publisher_id` is derived by looking up the publisher in the DB.
+/// For simplicity (matching the existing subscription_handlers pattern),
+/// we store the sub as a string and expose a UUID parsed from it when possible,
+/// falling back to a nil UUID so callers can handle the error themselves.
+#[derive(Debug, Clone)]
+pub struct AuthenticatedUser {
+    /// The `sub` claim from the JWT (Stellar address / publisher identifier)
+    pub stellar_address: String,
+    /// Publisher UUID — parsed from sub if it is a UUID, otherwise nil
+    pub publisher_id: uuid::Uuid,
+    /// Full claims for callers that need them
+    pub claims: AuthClaims,
+}
+
+#[axum::async_trait]
+impl<S> axum::extract::FromRequestParts<S> for AuthenticatedUser
+where
+    S: Send + Sync,
+{
+    type Rejection = StatusCode;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let auth_header = parts
+            .headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+
+        let auth_manager =
+            AuthManager::from_env().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let claims = auth_manager
+            .validate_jwt(auth_header)
+            .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+        let publisher_id = uuid::Uuid::parse_str(&claims.sub)
+            .unwrap_or(uuid::Uuid::nil());
+
+        Ok(AuthenticatedUser {
+            stellar_address: claims.sub.clone(),
+            publisher_id,
+            claims,
+        })
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthClaims {

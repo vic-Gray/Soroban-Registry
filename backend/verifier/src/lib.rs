@@ -8,6 +8,7 @@ use shared::RegistryError;
 use std::{fs, process::Stdio, time::Duration};
 use tempfile::TempDir;
 use tokio::{process::Command, time::timeout};
+use tracing::instrument;
 
 const DEFAULT_SOROBAN_SDK_VERSION: &str = "21.7.7";
 const BUILD_TIMEOUT: Duration = Duration::from_secs(120);
@@ -20,6 +21,7 @@ pub struct VerificationResult {
     pub message: Option<String>,
 }
 
+#[instrument(skip(source_code, build_params), fields(component = "verifier", deployed_wasm_hash = %deployed_wasm_hash))]
 pub async fn verify_contract(
     source_code: &str,
     deployed_wasm_hash: &str,
@@ -68,6 +70,7 @@ pub async fn verify_contract(
 /// Supports two source modes:
 /// - raw Rust contract source (compiled with cargo)
 /// - `wasm_base64:<...>` for precompiled test payloads
+#[instrument(skip(source_code, build_params), fields(component = "verifier"))]
 pub async fn compile_contract(
     source_code: &str,
     compiler_version: Option<&str>,

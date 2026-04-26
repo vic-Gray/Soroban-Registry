@@ -410,10 +410,13 @@ impl OnChainVerifier {
 
         let mut delay_ms = 200_u64;
         for attempt in 0..config.max_retries {
+            let mut headers = reqwest::header::HeaderMap::new();
+            crate::request_tracing::inject_current_trace_context(&mut headers);
             let response = self
                 .client
                 .post(&config.rpc_endpoint)
                 .timeout(config.timeout)
+                .headers(headers)
                 .json(&payload)
                 .send()
                 .await;

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
@@ -22,8 +22,8 @@ type MenuItem = {
 const RECENT_SEARCH_KEY = 'contract-search-recent';
 const MAX_RECENT_SEARCHES = 5;
 const SEARCH_HINTS = [
-  'Search by contract name, category, creator, or tag.',
-  'Type “DeFi”, “NFT”, “token”, or a publisher name.',
+  'Search by contract name, category, creator, or tag.',  'Try "DeFi", "NFT", "token", or a publisher address.',
+  'Advanced: use tag:yield and OR (e.g. token OR bridge).',
   'Use the keyboard arrows to navigate suggestions.',
 ];
 
@@ -294,7 +294,7 @@ export function SearchBar({
         <div className="absolute z-20 w-full mt-3 overflow-hidden rounded-3xl border border-border bg-card shadow-2xl">
           {isLoading ? (
             <div className="px-4 py-4 flex items-center justify-between gap-3 text-sm text-muted-foreground">
-              <span>Loading suggestions…</span>
+              <span>Loading suggestions...</span>
             </div>
           ) : menuItems.length > 0 ? (
             <ul role="listbox" className="divide-y divide-border">
@@ -336,3 +336,4 @@ export function SearchBar({
     </div>
   );
 }
+

@@ -11,9 +11,33 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'backend/**/*.rs'
+              - 'backend/Cargo.toml'
+              - 'backend/Cargo.lock'
+              - 'soroban-registry/**/*.rs'
+              - 'soroban-registry/Cargo.toml'
+              - 'soroban-registry/Cargo.lock'
+            frontend:
+              - 'frontend/**'
+
   # ── Rust Backend ────────────────────────────────────────────────────────
   rust-check:
     name: Rust – fmt, clippy, test, build
+    needs: [changes]
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true' }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -83,12 +107,16 @@ jobs:
   # ── Frontend ────────────────────────────────────────────────────────────
   frontend:
     name: Frontend – lint, test, build
+    needs: [changes]
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -106,7 +134,19 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: pnpm run lint
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            FILES="$(git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.sha }} -- 'frontend/**/*.{ts,tsx,js,jsx,mjs,cjs}')"
+            if [ -z "$FILES" ]; then
+              echo "No frontend JS/TS files changed; skipping lint."
+              exit 0
+            fi
+            echo "Linting changed files:"
+            echo "$FILES"
+            pnpm exec eslint $FILES
+          else
+            pnpm run lint
+          fi
 
       - name: Test
         run: pnpm run test --ci --passWithNoTests
@@ -145,7 +185,8 @@ jobs:
   docker-build:
     name: Docker production build
     runs-on: ubuntu-latest
-    needs: [rust-check, frontend]
+    needs: [changes, rust-check, frontend]
+    if: ${{ github.event_name != 'pull_request' || (needs.changes.outputs.rust == 'true' && needs.changes.outputs.frontend == 'true') }}
     steps:
       - uses: actions/checkout@v4
       - name: Build production image

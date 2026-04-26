@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { api, GraphNode, GraphEdge } from '@/lib/api';
+import { api, GraphNode } from '@/lib/api';
 import DependencyGraph from '@/components/DependencyGraph';
 import GraphControls from '@/components/GraphControls';
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
@@ -102,9 +102,10 @@ export default function ContractInteractionFlow({ contractId }: ContractInteract
       .map((n) => n.id);
   }, [searchQuery, nodes]);
 
-  useEffect(() => {
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
     setSearchMatchIndex(0);
-  }, [searchQuery]);
+  }, []);
 
   useEffect(() => {
     if (searchMatches.length > 0 && graphRef.current) {
@@ -199,7 +200,7 @@ export default function ContractInteractionFlow({ contractId }: ContractInteract
       <div className="absolute top-0 right-0 h-full pointer-events-none">
         <GraphControls
           searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
+          onSearchChange={handleSearchChange}
           networkFilter={networkFilter}
           onNetworkFilterChange={setNetworkFilter}
           dependencyTypeFilter={dependencyTypeFilter}

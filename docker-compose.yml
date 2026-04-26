@@ -25,6 +25,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-soroban_registry}
       RUST_LOG: ${RUST_LOG:-info}
       OTLP_ENDPOINT: http://jaeger:4317
+      OTEL_SERVICE_NAME: soroban-registry-api
     ports:
       - "3001:3001"
     depends_on:
@@ -41,6 +42,25 @@ services:
     volumes:
       - ./backend:/app
       - cargo_cache:/usr/local/cargo/registry
+
+  indexer:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: soroban-registry-indexer
+    command: ["/app/indexer"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-soroban_registry}
+      RUST_LOG: ${INDEXER_RUST_LOG:-indexer=info}
+      STELLAR_NETWORK: ${STELLAR_NETWORK:-testnet}
+      OTLP_ENDPOINT: http://jaeger:4317
+      OTEL_SERVICE_NAME: soroban-registry-indexer
+    depends_on:
+      postgres:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
 
   frontend:
     build:

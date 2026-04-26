@@ -78,6 +78,7 @@ mod type_safety;
 mod validation;
 mod webhook_delivery;
 mod websocket;
+mod verification_handlers;
 mod zk_proof_handlers;
 
 use anyhow::Result;
@@ -295,6 +296,7 @@ async fn main() -> Result<()> {
         .merge(routes::subscription_routes())
         .merge(routes::graph_analysis_routes())
         .merge(routes::formal_verification_routes())
+        .merge(routes::verification_status_routes())
         .merge(routes::validator_routes())
         .merge(release_notes_routes::release_notes_routes())
         .route(

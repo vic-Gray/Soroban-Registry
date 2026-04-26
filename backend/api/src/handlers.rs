@@ -1585,6 +1585,10 @@ pub async fn list_contracts(
         shared::SortBy::VerifiedAt => qb.push("c.verified_at "),
         shared::SortBy::LastAccessedAt => qb.push("c.last_accessed_at "),
         shared::SortBy::Popularity | shared::SortBy::Interactions => qb.push("COUNT(ci.id) "),
+        shared::SortBy::Deployments => {
+            qb.push("SUM(CASE WHEN ci.interaction_type = 'deploy' THEN 1 ELSE 0 END) ")
+        }
+        shared::SortBy::Relevance if params.query.is_some() => qb.push("c.created_at "),
         _ => qb.push("c.created_at "),
     };
     qb.push(direction);
@@ -1655,10 +1659,35 @@ pub async fn list_contracts(
         count_qb.push(" AND c.verification_status = ");
         count_qb.push_bind(status);
     }
-    if let Some(category) = &params.category {
-        count_qb.push(" AND c.category = ");
-        count_qb.push_bind(category);
+    let mut count_categories = params.categories.clone().unwrap_or_default();
+    if let Some(cat) = &params.category {
+        count_categories.push(cat.clone());
     }
+    count_categories.retain(|c| !c.trim().is_empty());
+    if !count_categories.is_empty() {
+        count_qb.push(" AND c.category IN (");
+        let mut sep = count_qb.separated(", ");
+        for cat in count_categories {
+            sep.push_bind(cat);
+        }
+        sep.push_unseparated(")");
+    }
+
+    if let Some(count_networks) = params
+        .networks
+        .as_ref()
+        .filter(|n| !n.is_empty())
+        .cloned()
+        .or_else(|| params.network.clone().map(|n| vec![n]))
+    {
+        count_qb.push(" AND c.network IN (");
+        let mut sep = count_qb.separated(", ");
+        for net in count_networks {
+            sep.push_bind(net);
+        }
+        sep.push_unseparated(")");
+    }
+
     if let Some(tags) = &params.tags {
         if !tags.is_empty() {
             count_qb.push(" AND c.id IN (SELECT contract_id FROM contract_tags ct JOIN tags t ON t.id = ct.tag_id WHERE t.name IN (");

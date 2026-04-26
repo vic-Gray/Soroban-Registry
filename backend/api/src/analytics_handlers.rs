@@ -12,6 +12,8 @@
 
 use axum::{
     extract::{Path, Query, State},
+    http::{header, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use chrono::{Duration, NaiveDate, Utc};
@@ -19,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use shared::{DeploymentStats, InteractorStats, Network, TopUser};
 use sqlx::FromRow;
 use std::collections::{BTreeMap, HashMap};
+use std::time::Duration as StdDuration;
 use uuid::Uuid;
 
 use crate::{
@@ -36,21 +39,44 @@ pub struct TrendPoint {
     pub count: i64,
 }
 
-/// Enhanced per-contract analytics response.
+/// Enhanced per-contract analytics response (issue #725).
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ContractAnalyticsResponse {
     pub contract_id: String,
     /// Total number of times this contract's profile page has been viewed.
-    /// Incremented asynchronously to avoid blocking the read path.
     pub view_count: i64,
     /// Deployment statistics sourced from the daily-aggregate rollup table.
     pub deployments: DeploymentStats,
     /// Interactor statistics computed from raw contract_interactions.
     pub interactors: InteractorStats,
-    /// 30-day daily interaction timeline (all interaction types combined).
+    /// Interaction timeline bucketed by the requested granularity.
     pub timeline: Vec<TrendPoint>,
     /// 7-day daily interaction trend used to identify rapidly-growing contracts.
     pub interaction_trend: Vec<TrendPoint>,
+    /// Inclusive start of the requested time range.
+    pub from_date: NaiveDate,
+    /// Inclusive end of the requested time range.
+    pub to_date: NaiveDate,
+    /// Bucket granularity used for `timeline`: "daily", "weekly", or "monthly".
+    pub bucket: String,
+    /// Fraction of interactions that resulted in an error (publish_failed).
+    /// Range [0.0, 1.0].  0.0 when there are no interactions.
+    pub error_rate: f64,
+    /// Whether this response was served from the cache.
+    pub cached: bool,
+}
+
+/// Query parameters for GET /api/contracts/{id}/analytics (issue #725).
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct ContractAnalyticsQuery {
+    /// Inclusive start date (YYYY-MM-DD).  Defaults to 30 days before `to_date`.
+    pub from_date: Option<NaiveDate>,
+    /// Inclusive end date (YYYY-MM-DD).  Defaults to today (UTC).
+    pub to_date: Option<NaiveDate>,
+    /// Aggregation bucket: "daily" (default), "weekly", or "monthly".
+    pub bucket: Option<String>,
+    /// Response format: "json" (default) or "csv".
+    pub format: Option<String>,
 }
 
 /// Analytics summary for a single category.
@@ -208,31 +234,95 @@ fn parse_contract_id(id: &str) -> ApiResult<Uuid> {
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
-/// Return enhanced analytics for a single contract.
+/// Return enhanced analytics for a single contract (issue #725).
 ///
-/// Deployment counts are sourced from the pre-computed
-/// `contract_interaction_daily_aggregates` rollup table rather than scanning
-/// raw interactions, so the query scales independently of interaction volume.
+/// Supports time-range filtering, bucket aggregation (daily/weekly/monthly),
+/// error-rate tracking, CSV export, and 6-hour caching for historical queries.
 #[utoipa::path(
     get,
     path = "/api/contracts/{id}/analytics",
     params(
-        ("id" = String, Path, description = "Contract UUID")
+        ("id" = String, Path, description = "Contract UUID"),
+        ContractAnalyticsQuery
     ),
     responses(
-        (status = 200, description = "Contract analytics", body = ContractAnalyticsResponse),
+        (status = 200, description = "Contract analytics (JSON or CSV)", body = ContractAnalyticsResponse),
         (status = 404, description = "Contract not found"),
-        (status = 400, description = "Invalid contract ID format")
+        (status = 400, description = "Invalid parameters")
     ),
     tag = "Analytics"
 )]
 pub async fn get_contract_analytics(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> ApiResult<Json<ContractAnalyticsResponse>> {
+    Query(query): Query<ContractAnalyticsQuery>,
+) -> Response {
+    match get_contract_analytics_inner(state, id, query).await {
+        Ok(r) => r,
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn get_contract_analytics_inner(
+    state: AppState,
+    id: String,
+    query: ContractAnalyticsQuery,
+) -> ApiResult<Response> {
+    // ── Validate & resolve time range ─────────────────────────────────────────
+    let to_date = query.to_date.unwrap_or_else(|| Utc::now().date_naive());
+    let from_date = query
+        .from_date
+        .unwrap_or_else(|| to_date - Duration::days(30));
+
+    if from_date > to_date {
+        return Err(ApiError::bad_request(
+            "InvalidDateRange",
+            "from_date must be before or equal to to_date",
+        ));
+    }
+    if (to_date - from_date).num_days() > 366 {
+        return Err(ApiError::bad_request(
+            "DateRangeTooLarge",
+            "Date range cannot exceed 366 days",
+        ));
+    }
+
+    let bucket = query
+        .bucket
+        .as_deref()
+        .unwrap_or("daily")
+        .to_ascii_lowercase();
+    if !matches!(bucket.as_str(), "daily" | "weekly" | "monthly") {
+        return Err(ApiError::bad_request(
+            "InvalidBucket",
+            "bucket must be one of: daily, weekly, monthly",
+        ));
+    }
+
+    let format = query
+        .format
+        .as_deref()
+        .unwrap_or("json")
+        .to_ascii_lowercase();
+
     let contract_uuid = parse_contract_id(&id)?;
 
-    // Single query: confirm existence + fetch view_count in one round-trip.
+    // ── Cache lookup (6-hour TTL for historical queries) ──────────────────────
+    let is_historical = to_date < Utc::now().date_naive();
+    let cache_key = format!("{}:{}:{}:{}", id, from_date, to_date, bucket);
+    if is_historical {
+        let (cached, hit) = state.cache.get("contract_analytics", &cache_key).await;
+        if hit {
+            if let Some(raw) = cached {
+                if let Ok(mut resp) = serde_json::from_str::<ContractAnalyticsResponse>(&raw) {
+                    resp.cached = true;
+                    return build_analytics_response(resp, &format);
+                }
+            }
+        }
+    }
+
+    // ── Confirm contract exists ───────────────────────────────────────────────
     let view_count: Option<i64> =
         sqlx::query_scalar("SELECT view_count FROM contracts WHERE id = $1")
             .bind(contract_uuid)
@@ -241,50 +331,50 @@ pub async fn get_contract_analytics(
             .map_err(|err| db_err("fetch view_count", err))?;
 
     let view_count = view_count.ok_or_else(|| {
-        ApiError::not_found(
-            "ContractNotFound",
-            format!("No contract found with ID: {}", id),
-        )
+        ApiError::not_found("ContractNotFound", format!("No contract found with ID: {}", id))
     })?;
 
-    // ── Deployment stats from the daily-aggregate rollup ──────────────────────
-    // Using the rollup table avoids a full scan of contract_interactions and
-    // is kept fresh by refresh_contract_interaction_daily_aggregates().
-
+    // ── Deployment stats (within requested range) ─────────────────────────────
     let deploy_total: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(count), 0)
          FROM   contract_interaction_daily_aggregates
          WHERE  contract_id = $1
-         AND    interaction_type = 'deploy'",
+           AND  interaction_type = 'deploy'
+           AND  day BETWEEN $2 AND $3",
     )
     .bind(contract_uuid)
+    .bind(from_date)
+    .bind(to_date)
     .fetch_one(&state.db)
     .await
     .map_err(|err| db_err("fetch deploy total", err))?;
 
-    // Unique deployers: still from raw interactions (rollup doesn't track
-    // per-user cardinality).
     let unique_deployers: i64 = sqlx::query_scalar(
         "SELECT COUNT(DISTINCT user_address)
          FROM   contract_interactions
          WHERE  contract_id = $1
-         AND    interaction_type = 'deploy'
-         AND    user_address IS NOT NULL",
+           AND  interaction_type = 'deploy'
+           AND  user_address IS NOT NULL
+           AND  DATE(interaction_timestamp) BETWEEN $2 AND $3",
     )
     .bind(contract_uuid)
+    .bind(from_date)
+    .bind(to_date)
     .fetch_one(&state.db)
     .await
     .map_err(|err| db_err("fetch unique deployers", err))?;
 
-    // Network breakdown for deployments.
     let by_network_rows: Vec<(String, i64)> = sqlx::query_as(
         "SELECT network::TEXT, COALESCE(SUM(count), 0)::BIGINT AS total
          FROM   contract_interaction_daily_aggregates
          WHERE  contract_id = $1
-         AND    interaction_type = 'deploy'
+           AND  interaction_type = 'deploy'
+           AND  day BETWEEN $2 AND $3
          GROUP  BY network",
     )
     .bind(contract_uuid)
+    .bind(from_date)
+    .bind(to_date)
     .fetch_all(&state.db)
     .await
     .map_err(|err| db_err("fetch deploy by network", err))?;
@@ -298,14 +388,16 @@ pub async fn get_contract_analytics(
             });
 
     // ── Interactor stats ──────────────────────────────────────────────────────
-
     let unique_interactors: i64 = sqlx::query_scalar(
         "SELECT COUNT(DISTINCT user_address)
          FROM   contract_interactions
          WHERE  contract_id = $1
-         AND    user_address IS NOT NULL",
+           AND  user_address IS NOT NULL
+           AND  DATE(interaction_timestamp) BETWEEN $2 AND $3",
     )
     .bind(contract_uuid)
+    .bind(from_date)
+    .bind(to_date)
     .fetch_one(&state.db)
     .await
     .map_err(|err| db_err("fetch unique interactors", err))?;
@@ -314,12 +406,15 @@ pub async fn get_contract_analytics(
         "SELECT user_address, COUNT(*) AS cnt
          FROM   contract_interactions
          WHERE  contract_id = $1
-         AND    user_address IS NOT NULL
+           AND  user_address IS NOT NULL
+           AND  DATE(interaction_timestamp) BETWEEN $2 AND $3
          GROUP  BY user_address
          ORDER  BY cnt DESC
          LIMIT  10",
     )
     .bind(contract_uuid)
+    .bind(from_date)
+    .bind(to_date)
     .fetch_all(&state.db)
     .await
     .map_err(|err| db_err("fetch top interactors", err))?;
@@ -329,52 +424,80 @@ pub async fn get_contract_analytics(
         .filter_map(|(addr, count)| addr.map(|a| TopUser { address: a, count }))
         .collect();
 
-    // ── 30-day timeline (all interaction types) ───────────────────────────────
-
-    let thirty_days_ago = chrono::Utc::now() - chrono::Duration::days(30);
-
-    let timeline_rows: Vec<(NaiveDate, i64)> = sqlx::query_as(
-        r#"
-        SELECT d::DATE AS date,
-               COALESCE(SUM(agg.count), 0)::BIGINT AS count
-        FROM   generate_series(
-                   ($1::TIMESTAMPTZ)::DATE,
-                   CURRENT_DATE,
-                   '1 day'::INTERVAL
-               ) d
-        LEFT   JOIN contract_interaction_daily_aggregates agg
-               ON  agg.contract_id = $2
-               AND agg.day = d::DATE
-        GROUP  BY d::DATE
-        ORDER  BY d::DATE
-        "#,
+    // ── Error rate ────────────────────────────────────────────────────────────
+    let total_in_range: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(count), 0)
+         FROM   contract_interaction_daily_aggregates
+         WHERE  contract_id = $1
+           AND  day BETWEEN $2 AND $3",
     )
-    .bind(thirty_days_ago)
     .bind(contract_uuid)
-    .fetch_all(&state.db)
+    .bind(from_date)
+    .bind(to_date)
+    .fetch_one(&state.db)
     .await
-    .map_err(|err| db_err("fetch 30-day timeline", err))?;
+    .map_err(|err| db_err("fetch total interactions", err))?;
+
+    let failed_in_range: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(count), 0)
+         FROM   contract_interaction_daily_aggregates
+         WHERE  contract_id = $1
+           AND  interaction_type = 'publish_failed'
+           AND  day BETWEEN $2 AND $3",
+    )
+    .bind(contract_uuid)
+    .bind(from_date)
+    .bind(to_date)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|err| db_err("fetch failed interactions", err))?;
+
+    let error_rate = if total_in_range > 0 {
+        failed_in_range as f64 / total_in_range as f64
+    } else {
+        0.0
+    };
+
+    // ── Bucketed timeline ─────────────────────────────────────────────────────
+    let trunc_expr = match bucket.as_str() {
+        "weekly" => "DATE_TRUNC('week', day::TIMESTAMP)::DATE",
+        "monthly" => "DATE_TRUNC('month', day::TIMESTAMP)::DATE",
+        _ => "day",  // daily
+    };
+
+    let timeline_sql = format!(
+        r#"
+        SELECT {trunc} AS bucket_date,
+               COALESCE(SUM(count), 0)::BIGINT AS total_count
+        FROM   contract_interaction_daily_aggregates
+        WHERE  contract_id = $1
+          AND  day BETWEEN $2 AND $3
+        GROUP  BY bucket_date
+        ORDER  BY bucket_date
+        "#,
+        trunc = trunc_expr
+    );
+
+    let timeline_rows: Vec<(NaiveDate, i64)> = sqlx::query_as(&timeline_sql)
+        .bind(contract_uuid)
+        .bind(from_date)
+        .bind(to_date)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|err| db_err("fetch bucketed timeline", err))?;
 
     let timeline: Vec<TrendPoint> = timeline_rows
         .into_iter()
         .map(|(date, count)| TrendPoint { date, count })
         .collect();
 
-    // ── 7-day interaction trend ───────────────────────────────────────────────
-    // Queried separately with a tight date range so the planner uses the
-    // (contract_id, day) index efficiently.
-
-    let seven_days_ago = chrono::Utc::now() - chrono::Duration::days(7);
-
+    // ── Fixed 7-day daily trend (always daily, always last 7 days) ────────────
+    let seven_days_ago = Utc::now().date_naive() - Duration::days(7);
     let trend_rows: Vec<(NaiveDate, i64)> = sqlx::query_as(
         r#"
         SELECT d::DATE AS date,
                COALESCE(SUM(agg.count), 0)::BIGINT AS count
-        FROM   generate_series(
-                   ($1::TIMESTAMPTZ)::DATE,
-                   CURRENT_DATE,
-                   '1 day'::INTERVAL
-               ) d
+        FROM   generate_series($1::DATE, CURRENT_DATE, '1 day'::INTERVAL) d
         LEFT   JOIN contract_interaction_daily_aggregates agg
                ON  agg.contract_id = $2
                AND agg.day = d::DATE
@@ -393,7 +516,7 @@ pub async fn get_contract_analytics(
         .map(|(date, count)| TrendPoint { date, count })
         .collect();
 
-    Ok(Json(ContractAnalyticsResponse {
+    let resp = ContractAnalyticsResponse {
         contract_id: id,
         view_count,
         deployments: DeploymentStats {
@@ -407,7 +530,80 @@ pub async fn get_contract_analytics(
         },
         timeline,
         interaction_trend,
-    }))
+        from_date,
+        to_date,
+        bucket: bucket.clone(),
+        error_rate,
+        cached: false,
+    };
+
+    // Cache historical results for 6 hours
+    if is_historical {
+        if let Ok(serialized) = serde_json::to_string(&resp) {
+            state
+                .cache
+                .put(
+                    "contract_analytics",
+                    &cache_key,
+                    serialized,
+                    Some(StdDuration::from_secs(6 * 3600)),
+                )
+                .await;
+        }
+    }
+
+    build_analytics_response(resp, &format)
+}
+
+fn build_analytics_response(resp: ContractAnalyticsResponse, format: &str) -> ApiResult<Response> {
+    if format == "csv" {
+        let csv = render_analytics_csv(&resp);
+        let body = axum::body::Body::from(csv);
+        let response = axum::response::Response::builder()
+            .status(StatusCode::OK)
+            .header(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("text/csv; charset=utf-8"),
+            )
+            .header(
+                header::CONTENT_DISPOSITION,
+                HeaderValue::from_str(&format!(
+                    "attachment; filename=\"analytics_{}.csv\"",
+                    resp.contract_id
+                ))
+                .unwrap_or(HeaderValue::from_static(
+                    "attachment; filename=\"analytics.csv\"",
+                )),
+            )
+            .body(body)
+            .map_err(|_| ApiError::internal("Failed to build CSV response"))?;
+        return Ok(response);
+    }
+    Ok(Json(resp).into_response())
+}
+
+fn render_analytics_csv(resp: &ContractAnalyticsResponse) -> String {
+    let mut csv = String::new();
+    csv.push_str(&format!("# contract_id={}\n", resp.contract_id));
+    csv.push_str(&format!("# from_date={}\n", resp.from_date));
+    csv.push_str(&format!("# to_date={}\n", resp.to_date));
+    csv.push_str(&format!("# bucket={}\n", resp.bucket));
+    csv.push_str(&format!("# total_deployments={}\n", resp.deployments.count));
+    csv.push_str(&format!(
+        "# unique_deployers={}\n",
+        resp.deployments.unique_users
+    ));
+    csv.push_str(&format!(
+        "# unique_interactors={}\n",
+        resp.interactors.unique_count
+    ));
+    csv.push_str(&format!("# view_count={}\n", resp.view_count));
+    csv.push_str(&format!("# error_rate={:.6}\n", resp.error_rate));
+    csv.push_str("date,interactions\n");
+    for point in &resp.timeline {
+        csv.push_str(&format!("{},{}\n", point.date, point.count));
+    }
+    csv
 }
 
 /// Return registry-wide analytics aggregated by category and network.

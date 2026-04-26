@@ -7,7 +7,7 @@ use crate::{
     gas_estimation_handlers, governance_handlers, handlers, interoperability_handlers,
     metrics_handler, migration_handlers, org_handlers, patch_handlers, performance_handlers,
     recommendation_handlers, resource_handlers, security_scan_handlers, similarity_handlers,
-    simulation_handlers, state::AppState, subscription_handlers, websocket,
+    simulation_handlers, state::AppState, subscription_handlers, verification_handlers, websocket,
 };
 
 use axum::{
@@ -886,6 +886,29 @@ pub fn formal_verification_routes() -> Router<AppState> {
         .route(
             "/api/contracts/:id/formal-verification/:session_id",
             get(formal_verification_handlers::get_formal_verification_session),
+        )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONTRACT VERIFICATION STATUS ROUTES (issue #724)
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub fn verification_status_routes() -> Router<AppState> {
+    Router::new()
+        // Submit a contract for verification by ID (complements the global /verify endpoint)
+        .route(
+            "/api/contracts/:id/verify",
+            post(verification_handlers::submit_contract_verification),
+        )
+        // Get current verification status (cached 1 hour)
+        .route(
+            "/api/contracts/:id/verification-status",
+            get(verification_handlers::get_contract_verification_status),
+        )
+        // Get chronological audit trail of verification status changes
+        .route(
+            "/api/contracts/:id/verification-history",
+            get(verification_handlers::get_contract_verification_history),
         )
 }
 

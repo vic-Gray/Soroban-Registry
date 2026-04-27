@@ -3,8 +3,8 @@ use crate::openapi;
 use crate::{
     ab_test_handlers, analytics_handlers, auth, auth_handlers, batch_verify_handlers,
     breaking_changes, canary_handlers, category_handlers, clone_federation_handlers,
-    compatibility_testing_handlers, contract_events, custom_metrics_handlers, deprecation_handlers,
-    formal_verification_handlers, gas_estimation_handlers, governance_handlers,
+    compatibility_testing_handlers, contract_events, contract_stats_handlers, custom_metrics_handlers,
+    deprecation_handlers, formal_verification_handlers, gas_estimation_handlers, governance_handlers,
     graph_analysis_handlers, handlers, interoperability_handlers, metrics_handler,
     migration_handlers, mutation_testing_handlers, org_handlers, patch_handlers,
     performance_handlers, plugin_marketplace_handlers, publisher_verification_handlers,
@@ -86,9 +86,9 @@ pub fn contract_routes() -> Router<AppState> {
         )
         .route(
             "/api/contracts/trending",
-            get(handlers::get_trending_contracts),
+            get(contract_stats_handlers::get_trending_contracts),
         )
-        .route("/contracts/trending", get(handlers::get_trending_contracts))
+        .route("/contracts/trending", get(contract_stats_handlers::get_trending_contracts))
         .route("/api/contracts/batch", post(handlers::get_contracts_batch))
         .route("/contracts/batch", post(handlers::get_contracts_batch))
         .route("/api/contracts/graph", get(handlers::get_contract_graph))
@@ -194,6 +194,14 @@ pub fn contract_routes() -> Router<AppState> {
         .route(
             "/api/contracts/:id/analytics",
             get(analytics_handlers::get_contract_analytics),
+        )
+        .route(
+            "/api/contracts/:id/stats",
+            get(contract_stats_handlers::get_contract_stats),
+        )
+        .route(
+            "/api/contracts/:id/stats/timeseries",
+            get(contract_stats_handlers::get_contract_stats_timeseries),
         )
         .route(
             "/api/analytics/dashboard",

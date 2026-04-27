@@ -14,6 +14,7 @@ pub mod canary_handlers;
 pub mod category_handlers;
 pub mod clone_federation_handlers;
 pub mod compatibility_testing_handlers;
+pub mod contract_stats_handlers;
 pub mod contract_events;
 pub mod custom_metrics_handlers;
 pub mod deprecation_handlers;

@@ -4425,3 +4425,151 @@ pub struct ZkCircuitSummary {
     pub compiled_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONTRACT USAGE STATISTICS (Issue #732)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Time period for stats aggregation
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum StatsPeriod {
+    /// Last 7 days
+    #[serde(rename = "7d")]
+    SevenDays,
+    /// Last 30 days
+    #[serde(rename = "30d")]
+    ThirtyDays,
+    /// Last 90 days
+    #[serde(rename = "90d")]
+    NinetyDays,
+}
+
+impl StatsPeriod {
+    pub fn days(&self) -> i64 {
+        match self {
+            Self::SevenDays => 7,
+            Self::ThirtyDays => 30,
+            Self::NinetyDays => 90,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::SevenDays => "7d",
+            Self::ThirtyDays => "30d",
+            Self::NinetyDays => "90d",
+        }
+    }
+}
+
+impl std::str::FromStr for StatsPeriod {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "7d" => Ok(Self::SevenDays),
+            "30d" => Ok(Self::ThirtyDays),
+            "90d" => Ok(Self::NinetyDays),
+            other => Err(format!(
+                "invalid stats period `{}`; expected 7d, 30d, or 90d",
+                other
+            )),
+        }
+    }
+}
+
+/// Query parameters for GET /api/contracts/{id}/stats
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::IntoParams)]
+pub struct ContractStatsQuery {
+    /// Time period: 7d, 30d, 90d (default: 30d)
+    pub period: Option<String>,
+    /// Response format: json (default) or csv
+    pub format: Option<String>,
+}
+
+/// Usage metrics for a single contract over a time period
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ContractUsageStats {
+    /// Contract UUID
+    pub contract_id: Uuid,
+    /// Contract name
+    pub contract_name: String,
+    /// Time period covered
+    pub period: String,
+    /// Start date of the period
+    pub period_start: chrono::NaiveDate,
+    /// End date of the period
+    pub period_end: chrono::NaiveDate,
+    /// Total deployments in period
+    pub deployment_count: i64,
+    /// Total contract calls (invoke, transfer, query) in period
+    pub call_count: i64,
+    /// Total errors (publish_failed) in period
+    pub error_count: i64,
+    /// Number of unique callers in period
+    pub unique_callers: i64,
+    /// Number of unique deployers in period
+    pub unique_deployers: i64,
+    /// Total interactions of all types in period
+    pub total_interactions: i64,
+    /// Average calls per day
+    pub avg_calls_per_day: f64,
+    /// Error rate as fraction [0.0, 1.0]
+    pub error_rate: f64,
+}
+
+/// One point in a time-series for contract stats
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct StatsTimeSeriesPoint {
+    /// Date of this data point
+    pub date: chrono::NaiveDate,
+    /// Deployments on this date
+    pub deployments: i64,
+    /// Calls on this date
+    pub calls: i64,
+    /// Errors on this date
+    pub errors: i64,
+    /// Total interactions on this date
+    pub total: i64,
+    /// Unique callers on this date
+    pub unique_callers: i64,
+}
+
+/// Time-series response for contract stats
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ContractStatsTimeSeriesResponse {
+    pub contract_id: Uuid,
+    pub contract_name: String,
+    pub period: String,
+    pub period_start: chrono::NaiveDate,
+    pub period_end: chrono::NaiveDate,
+    pub series: Vec<StatsTimeSeriesPoint>,
+}
+
+/// A trending contract entry with ranking metrics
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct TrendingContractStats {
+    pub contract_id: Uuid,
+    pub name: String,
+    pub network: String,
+    pub category: Option<String>,
+    pub is_verified: bool,
+    pub interactions_7d: i64,
+    pub interactions_30d: i64,
+    pub interactions_90d: i64,
+    pub deployments_7d: i64,
+    pub errors_7d: i64,
+    pub unique_callers_7d: i64,
+    pub trending_score: f64,
+    pub rank: i64,
+}
+
+/// Response for GET /api/contracts/trending
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct TrendingContractsResponse {
+    pub period: String,
+    pub total: i64,
+    pub contracts: Vec<TrendingContractStats>,
+    pub generated_at: DateTime<Utc>,
+}

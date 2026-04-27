@@ -1,18 +1,16 @@
 // Contract verification engine
 // Compiles source code and compares with on-chain bytecode
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use shared::RegistryError;
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::process::Stdio;
 use std::time::Duration;
+use tempfile::TempDir;
 use tokio::fs;
 use tokio::process::Command;
 use tokio::time::timeout;
-use sha2::{Sha256, Digest};
-use tempfile::tempdir;
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use serde_json::Value;
-use std::process::Stdio;
-use tempfile::TempDir;
-use tokio::{process::Command, time::timeout};
 use tracing::instrument;
 
 const DEFAULT_SOROBAN_SDK_VERSION: &str = "21.7.7";

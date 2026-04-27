@@ -1,3 +1,4 @@
+pub mod deps;
 // Contract verification engine
 // Compiles source code and compares with on-chain bytecode
 

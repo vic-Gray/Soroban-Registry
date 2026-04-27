@@ -1,4 +1,5 @@
 // Contract verification engine
+pub mod engine;
 // Compiles source code and compares with on-chain bytecode
 
 use anyhow::Result;

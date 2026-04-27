@@ -1,6 +1,7 @@
 #![warn(unused_imports)]
 
 mod ab_test_handlers;
+mod abi_versioning_handlers;
 mod aggregation;
 mod analytics;
 mod auth;

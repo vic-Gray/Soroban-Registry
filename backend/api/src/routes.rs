@@ -1,16 +1,16 @@
 #[cfg(feature = "openapi")]
 use crate::openapi;
 use crate::{
-    ab_test_handlers, analytics_handlers, auth, auth_handlers, batch_verify_handlers,
-    breaking_changes, canary_handlers, category_handlers, clone_federation_handlers,
-    compatibility_testing_handlers, contract_events, custom_metrics_handlers, deprecation_handlers,
-    formal_verification_handlers, gas_estimation_handlers, governance_handlers,
-    graph_analysis_handlers, handlers, interoperability_handlers, metrics_handler,
-    migration_handlers, mutation_testing_handlers, org_handlers, patch_handlers,
-    performance_handlers, plugin_marketplace_handlers, publisher_verification_handlers,
-    recommendation_handlers, resource_handlers, security_scan_handlers, similarity_handlers,
-    simulation_handlers, state::AppState, subscription_handlers, verification_handlers, websocket,
-    zk_proof_handlers,
+    ab_test_handlers, abi_versioning_handlers, analytics_handlers, auth, auth_handlers,
+    batch_verify_handlers, breaking_changes, canary_handlers, category_handlers,
+    clone_federation_handlers, compatibility_testing_handlers, contract_events,
+    custom_metrics_handlers, deprecation_handlers, formal_verification_handlers,
+    gas_estimation_handlers, governance_handlers, graph_analysis_handlers, handlers,
+    interoperability_handlers, metrics_handler, migration_handlers, mutation_testing_handlers,
+    org_handlers, patch_handlers, performance_handlers, plugin_marketplace_handlers,
+    publisher_verification_handlers, recommendation_handlers, resource_handlers,
+    security_scan_handlers, similarity_handlers, simulation_handlers, state::AppState,
+    subscription_handlers, verification_handlers, websocket, zk_proof_handlers,
 };
 
 use axum::{
@@ -110,7 +110,19 @@ pub fn contract_routes() -> Router<AppState> {
             "/api/contracts/:id/audit-log",
             get(handlers::get_contract_audit_log),
         )
-        .route("/api/contracts/:id/abi", get(handlers::get_contract_abi))
+        .route(
+            "/api/contracts/:id/abi",
+            get(handlers::get_contract_abi)
+                .post(abi_versioning_handlers::publish_abi),
+        )
+        .route(
+            "/api/contracts/:id/abi/:version",
+            get(abi_versioning_handlers::get_abi_version),
+        )
+        .route(
+            "/api/contracts/:id/check-compatibility",
+            post(abi_versioning_handlers::check_compatibility),
+        )
         .route(
             "/api/contracts/:id/openapi.yaml",
             get(handlers::get_contract_openapi_yaml),

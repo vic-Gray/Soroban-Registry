@@ -3327,10 +3327,6 @@ pub struct BatchGasEstimateResponse {
     pub not_found: Vec<String>,
 }
 
-fn default_true() -> bool {
-    true
-}
-
 // ────────────────────────────────────────────────────────────────────────────
 // Contract changelog (release history)
 // ────────────────────────────────────────────────────────────────────────────

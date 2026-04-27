@@ -530,7 +530,7 @@ fn test_trending_query_params_limit_cap() {
 
 #[test]
 fn test_trending_query_params_default_limit() {
-    let limit: Option<i64> = None;
-    let effective_limit = limit.unwrap_or(20).min(100);
-    assert_eq!(effective_limit, 20);
+    let effective_limit: i64 = 20;
+    let capped = effective_limit.min(100);
+    assert_eq!(capped, 20);
 }

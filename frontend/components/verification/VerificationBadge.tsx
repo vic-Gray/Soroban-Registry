@@ -16,7 +16,7 @@ function getBadgeConfig(status: VerificationStatus, level?: VerificationLevel): 
       const levelLabel = level ? ` (${level.charAt(0).toUpperCase() + level.slice(1)})` : '';
       return {
         label: `Verified${levelLabel}`,
-        className: 'bg-green-500/10 text-green-600 border-green-500/20',
+        className: 'bg-green-500/10 text-green-500 border-green-500/20',
         Icon: CheckCircle2,
         tooltip: level === 'advanced' ? 'Advanced Verification: Fully audited code with formal verification' :
                  level === 'intermediate' ? 'Intermediate Verification: Audited code' :
@@ -26,7 +26,7 @@ function getBadgeConfig(status: VerificationStatus, level?: VerificationLevel): 
     case 'submitted':
       return {
         label: 'Pending',
-        className: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20',
+        className: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20',
         Icon: ShieldCheck,
         tooltip: 'Verification is currently in progress',
       };

@@ -45,14 +45,14 @@ export default function ContractCard({ contract, sortBy }: ContractCardProps) {
   const [quickViewOpen, setQuickViewOpen] = React.useState(false);
 
   const networkColors = {
-    mainnet: 'bg-green-500/10 text-green-600 border-green-500/20',
-    testnet: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
-    futurenet: 'bg-purple-500/10 text-purple-600 border-purple-500/20',
+    mainnet: 'bg-green-500/10 text-green-500 border-green-500/20',
+    testnet: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+    futurenet: 'bg-purple-500/10 text-purple-500 border-purple-500/20',
   };
   const networkDots = {
-    mainnet: 'bg-green-500',
-    testnet: 'bg-blue-500',
-    futurenet: 'bg-purple-500',
+    mainnet: 'bg-green-400',
+    testnet: 'bg-blue-400',
+    futurenet: 'bg-purple-400',
   };
 
   const address = formatContractId(contract.contract_id);

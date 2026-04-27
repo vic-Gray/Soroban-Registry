@@ -24,19 +24,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as Theme | null;
         if (savedTheme) {
-            // eslint-disable-next-line react-hooks/set-state-in-effect
             setThemeState(savedTheme);
         }
     }, []);
 
     useEffect(() => {
         const root = window.document.documentElement;
-        const currentResolvedTheme = theme === 'system' ? getSystemTheme() : theme;
+        const isDark = theme === 'dark' || (theme === 'system' && getSystemTheme() === 'dark');
+        
+        setResolvedTheme(isDark ? 'dark' : 'light');
 
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setResolvedTheme(currentResolvedTheme);
-
-        if (currentResolvedTheme === 'dark') {
+        if (isDark) {
             root.classList.add('dark');
         } else {
             root.classList.remove('dark');
@@ -49,10 +47,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
         const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
         const handleChange = () => {
-            const currentResolvedTheme = getSystemTheme();
-            setResolvedTheme(currentResolvedTheme);
+            const isDark = mediaQuery.matches;
+            setResolvedTheme(isDark ? 'dark' : 'light');
             const root = window.document.documentElement;
-            if (currentResolvedTheme === 'dark') {
+            if (isDark) {
                 root.classList.add('dark');
             } else {
                 root.classList.remove('dark');
@@ -61,7 +59,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
         mediaQuery.addEventListener('change', handleChange);
         return () => mediaQuery.removeEventListener('change', handleChange);
-    }, [theme, getSystemTheme]);
+    }, [theme]);
 
     return (
         <ThemeContext.Provider value={{ theme, setTheme, resolvedTheme }}>

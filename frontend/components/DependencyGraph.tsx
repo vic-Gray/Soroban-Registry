@@ -4,6 +4,8 @@ import * as d3 from "d3";
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useState } from "react";
 import type { GraphNode, GraphEdge } from "@/lib/api";
 
+import { useTheme } from "@/hooks/useTheme";
+
 // ─── Public handle type ──────────────────────────────────────────────────────
 export interface DependencyGraphHandle {
   zoomIn: () => void;
@@ -72,6 +74,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
     { nodes, edges, searchQuery = "", dependentCounts = new Map(), onNodeClick, selectedNode }: DependencyGraphProps,
     ref
   ) {
+    const { resolvedTheme } = useTheme();
     const svgRef = useRef<SVGSVGElement>(null);
     const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
     const gRef = useRef<d3.Selection<SVGGElement, unknown, null, undefined> | null>(null);
@@ -221,7 +224,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
           canvas.width = svg.clientWidth || 1200;
           canvas.height = svg.clientHeight || 800;
           const ctx = canvas.getContext("2d")!;
-          ctx.fillStyle = "#030712";
+          ctx.fillStyle = resolvedTheme === "dark" ? "#030712" : "#f8fafc";
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0);
           const a = document.createElement("a");
@@ -267,7 +270,7 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
         .attr("orient", "auto")
         .append("path")
         .attr("d", "M0,-5L10,0L0,5")
-        .attr("fill", "#4b5563");
+        .attr("fill", resolvedTheme === "dark" ? "#6b7280" : "#9ca3af");
 
       // ── Root group (zoom target) ──
       const g = svg.append("g").attr("class", "graph-root");
@@ -300,10 +303,13 @@ const DependencyGraph = forwardRef<DependencyGraphHandle, DependencyGraphProps>(
           data: e,
         }));
 
-      const baseEdgeColor = (link: SimLink) => link.data.is_circular ? "#ef4444" : "#374151";
+      const baseEdgeColor = (link: SimLink) => {
+        if (link.data.is_circular) return "#ef4444";
+        return resolvedTheme === "dark" ? "#4b5563" : "#cbd5e1";
+      };
       const baseEdgeOpacity = (link: SimLink) => {
-        if (link.data.is_circular) return isLargeGraph ? 0.72 : 0.9;
-        return isLargeGraph ? 0.35 : 0.6;
+        if (link.data.is_circular) return isLargeGraph ? 0.8 : 1.0;
+        return isLargeGraph ? 0.4 : 0.7;
       };
 
       // ── Force simulation ──

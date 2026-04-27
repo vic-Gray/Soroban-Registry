@@ -111,8 +111,7 @@ fn test_contract_usage_stats_deserializes() {
         "error_rate": 0.00198
     });
 
-    let stats: ContractUsageStats =
-        serde_json::from_value(json_value).expect("should deserialize");
+    let stats: ContractUsageStats = serde_json::from_value(json_value).expect("should deserialize");
     assert_eq!(stats.contract_name, "MyContract");
     assert_eq!(stats.period, "7d");
     assert_eq!(stats.deployment_count, 5);
@@ -439,8 +438,7 @@ fn test_contract_usage_stats_json_roundtrip() {
     };
 
     let json = serde_json::to_string(&original).expect("should serialize");
-    let deserialized: ContractUsageStats =
-        serde_json::from_str(&json).expect("should deserialize");
+    let deserialized: ContractUsageStats = serde_json::from_str(&json).expect("should deserialize");
 
     assert_eq!(deserialized.contract_id, original.contract_id);
     assert_eq!(deserialized.contract_name, original.contract_name);
@@ -488,11 +486,23 @@ fn test_trending_contracts_response_json_roundtrip() {
     assert_eq!(deserialized.period, original.period);
     assert_eq!(deserialized.total, original.total);
     assert_eq!(deserialized.contracts.len(), 1);
-    assert_eq!(deserialized.contracts[0].contract_id, original.contracts[0].contract_id);
+    assert_eq!(
+        deserialized.contracts[0].contract_id,
+        original.contracts[0].contract_id
+    );
     assert_eq!(deserialized.contracts[0].name, original.contracts[0].name);
-    assert_eq!(deserialized.contracts[0].network, original.contracts[0].network);
-    assert_eq!(deserialized.contracts[0].category, original.contracts[0].category);
-    assert_eq!(deserialized.contracts[0].is_verified, original.contracts[0].is_verified);
+    assert_eq!(
+        deserialized.contracts[0].network,
+        original.contracts[0].network
+    );
+    assert_eq!(
+        deserialized.contracts[0].category,
+        original.contracts[0].category
+    );
+    assert_eq!(
+        deserialized.contracts[0].is_verified,
+        original.contracts[0].is_verified
+    );
     assert_eq!(deserialized.contracts[0].rank, original.contracts[0].rank);
 }
 

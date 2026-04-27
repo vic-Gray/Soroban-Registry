@@ -3,14 +3,14 @@ use crate::openapi;
 use crate::{
     ab_test_handlers, analytics_handlers, auth, auth_handlers, batch_verify_handlers,
     breaking_changes, canary_handlers, category_handlers, clone_federation_handlers,
-    compatibility_testing_handlers, contract_events, contract_stats_handlers, custom_metrics_handlers,
-    deprecation_handlers, error_logging, formal_verification_handlers, gas_estimation_handlers, governance_handlers,
-    graph_analysis_handlers, handlers, interoperability_handlers, metrics_handler,
-    migration_handlers, mutation_testing_handlers, org_handlers, patch_handlers,
-    performance_handlers, plugin_marketplace_handlers, publisher_verification_handlers,
-    recommendation_handlers, resource_handlers, security_scan_handlers, similarity_handlers,
-    simulation_handlers, state::AppState, subscription_handlers, verification_handlers, websocket,
-    zk_proof_handlers,
+    compatibility_testing_handlers, contract_events, contract_stats_handlers,
+    custom_metrics_handlers, deprecation_handlers, error_logging, formal_verification_handlers,
+    gas_estimation_handlers, governance_handlers, graph_analysis_handlers, handlers,
+    interoperability_handlers, metrics_handler, migration_handlers, mutation_testing_handlers,
+    org_handlers, patch_handlers, performance_handlers, plugin_marketplace_handlers,
+    publisher_verification_handlers, recommendation_handlers, resource_handlers,
+    security_scan_handlers, similarity_handlers, simulation_handlers, state::AppState,
+    subscription_handlers, verification_handlers, websocket, zk_proof_handlers,
 };
 
 use axum::{
@@ -169,7 +169,10 @@ pub fn contract_routes() -> Router<AppState> {
             "/api/contracts/trending",
             get(contract_stats_handlers::get_trending_contracts),
         )
-        .route("/contracts/trending", get(contract_stats_handlers::get_trending_contracts))
+        .route(
+            "/contracts/trending",
+            get(contract_stats_handlers::get_trending_contracts),
+        )
         .route("/api/contracts/batch", post(handlers::get_contracts_batch))
         .route("/contracts/batch", post(handlers::get_contracts_batch))
         .route("/api/contracts/graph", get(handlers::get_contract_graph))

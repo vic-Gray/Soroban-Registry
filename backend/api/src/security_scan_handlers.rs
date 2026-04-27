@@ -299,14 +299,13 @@ pub async fn update_security_issue(
     Json(req): Json<UpdateSecurityIssueRequest>,
 ) -> ApiResult<Json<shared::SecurityIssue>> {
     // Verify issue belongs to contract
-    let existing: Option<shared::SecurityIssue> = sqlx::query_as(
-        "SELECT * FROM security_issues WHERE id = $1 AND contract_id = $2",
-    )
-    .bind(issue_id)
-    .bind(contract_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let existing: Option<shared::SecurityIssue> =
+        sqlx::query_as("SELECT * FROM security_issues WHERE id = $1 AND contract_id = $2")
+            .bind(issue_id)
+            .bind(contract_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     let mut issue = existing
         .ok_or_else(|| ApiError::not_found("security_issue", "Security issue not found"))?;

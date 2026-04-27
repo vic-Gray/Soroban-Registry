@@ -82,7 +82,10 @@ fn normalize_error_code(code: impl Into<String>) -> String {
             if ch.is_ascii_uppercase()
                 && idx > 0
                 && !normalized.ends_with('_')
-                && normalized.chars().last().is_some_and(|prev| prev.is_ascii_lowercase())
+                && normalized
+                    .chars()
+                    .last()
+                    .is_some_and(|prev| prev.is_ascii_lowercase())
             {
                 normalized.push('_');
             }

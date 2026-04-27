@@ -17,11 +17,10 @@ use crate::{
 };
 use shared::{
     ContractSubscription, ContractSubscriptionSummary, CreateWebhookRequest, NotificationChannel,
-    NotificationQueueItem,
-    NotificationFrequency, NotificationType, SubscribeRequest, SubscriptionStatus,
-    PaginatedResponse,
-    UpdateSubscriptionRequest, UpdateUserNotificationPreferencesRequest,
-    UserNotificationPreferences, UserSubscriptionsResponse, WebhookConfiguration,
+    NotificationFrequency, NotificationQueueItem, NotificationType, PaginatedResponse,
+    SubscribeRequest, SubscriptionStatus, UpdateSubscriptionRequest,
+    UpdateUserNotificationPreferencesRequest, UserNotificationPreferences,
+    UserSubscriptionsResponse, WebhookConfiguration,
 };
 
 // ─── Query / response types ────────────────────────────────────────────────
@@ -154,7 +153,10 @@ pub async fn unsubscribe_from_contract(
             .rows_affected();
 
     if rows_affected == 0 {
-        return Err(ApiError::not_found("subscription", "Subscription not found"));
+        return Err(ApiError::not_found(
+            "subscription",
+            "Subscription not found",
+        ));
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -260,7 +262,10 @@ pub async fn update_subscription(
     .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
 
     if !exists {
-        return Err(ApiError::not_found("subscription", "Subscription not found"));
+        return Err(ApiError::not_found(
+            "subscription",
+            "Subscription not found",
+        ));
     }
 
     // Apply each optional field individually to avoid string-interpolated SQL injection.
@@ -705,16 +710,14 @@ pub async fn delete_webhook(
     Path(webhook_id): Path<Uuid>,
     auth_user: auth::AuthenticatedUser,
 ) -> ApiResult<StatusCode> {
-
-    let rows_affected = sqlx::query(
-        "DELETE FROM webhook_configurations WHERE id = $1 AND user_id = $2",
-    )
-    .bind(webhook_id)
-    .bind(auth_user.publisher_id)
-    .execute(&state.db)
-    .await
-    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
-    .rows_affected();
+    let rows_affected =
+        sqlx::query("DELETE FROM webhook_configurations WHERE id = $1 AND user_id = $2")
+            .bind(webhook_id)
+            .bind(auth_user.publisher_id)
+            .execute(&state.db)
+            .await
+            .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
+            .rows_affected();
 
     let user_id = auth_user.publisher_id;
 
@@ -726,7 +729,6 @@ pub async fn delete_webhook(
             .await
             .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?
             .rows_affected();
-
 
     if rows_affected == 0 {
         return Err(ApiError::not_found("webhook", "Webhook not found"));

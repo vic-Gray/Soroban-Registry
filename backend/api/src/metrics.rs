@@ -182,8 +182,10 @@ pub static VERIFICATION_CACHE_MISSES: Lazy<IntCounter> = counter!(
     "verification_cache_misses_total",
     "Verification cache misses"
 );
-pub static CONTRACTS_CACHE_HITS: Lazy<IntCounter> = counter!("contracts_cache_hits_total", "Contracts cache hits");
-pub static CONTRACTS_CACHE_MISSES: Lazy<IntCounter> = counter!("contracts_cache_misses_total", "Contracts cache misses");
+pub static CONTRACTS_CACHE_HITS: Lazy<IntCounter> =
+    counter!("contracts_cache_hits_total", "Contracts cache hits");
+pub static CONTRACTS_CACHE_MISSES: Lazy<IntCounter> =
+    counter!("contracts_cache_misses_total", "Contracts cache misses");
 
 pub static REDIS_CACHE_HITS: Lazy<IntCounter> =
     counter!("redis_cache_hits_total", "Redis cache hits");

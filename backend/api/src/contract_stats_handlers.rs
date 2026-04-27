@@ -76,12 +76,10 @@ pub async fn get_contract_stats(
     let period_start = period_end - Duration::days(days);
 
     // Fetch contract name for the response
-    let contract_name = sqlx::query_scalar::<_, String>(
-        "SELECT name FROM contracts WHERE id = $1",
-    )
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| ApiError::not_found(&format!("Contract {} not found", contract_id)))?;
+    let contract_name = sqlx::query_scalar::<_, String>("SELECT name FROM contracts WHERE id = $1")
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| ApiError::not_found(&format!("Contract {} not found", contract_id)))?;
 
     // Query aggregated stats for the period
     let stats = sqlx::query_as::<_, ContractUsageStatsRow>(
@@ -164,12 +162,10 @@ pub async fn get_contract_stats_timeseries(
     let period_end = Utc::now().date_naive();
     let period_start = period_end - Duration::days(days);
 
-    let contract_name = sqlx::query_scalar::<_, String>(
-        "SELECT name FROM contracts WHERE id = $1",
-    )
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| ApiError::not_found(&format!("Contract {} not found", contract_id)))?;
+    let contract_name = sqlx::query_scalar::<_, String>("SELECT name FROM contracts WHERE id = $1")
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| ApiError::not_found(&format!("Contract {} not found", contract_id)))?;
 
     let rows = sqlx::query_as::<_, TimeSeriesRow>(
         r#"
@@ -243,9 +239,8 @@ pub async fn get_trending_contracts(
         StatsPeriod::NinetyDays => "interactions_90d",
     };
 
-    let rows = sqlx::query_as::<_, TrendingContractStats>(
-        &format!(
-            r#"
+    let rows = sqlx::query_as::<_, TrendingContractStats>(&format!(
+        r#"
             SELECT
                 contract_id,
                 name,
@@ -264,18 +259,15 @@ pub async fn get_trending_contracts(
             ORDER BY {} DESC
             LIMIT $1
             "#,
-            column, column
-        ),
-    )
+        column, column
+    ))
     .bind(limit)
     .fetch_all(&state.pool)
     .await?;
 
-    let total = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM trending_contracts_mv",
-    )
-    .fetch_one(&state.pool)
-    .await?;
+    let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM trending_contracts_mv")
+        .fetch_one(&state.pool)
+        .await?;
 
     Ok(Json(TrendingContractsResponse {
         period: period.as_str().to_string(),

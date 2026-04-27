@@ -11,15 +11,15 @@ use uuid::Uuid;
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Represents a tag that can be attached to a contract
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema, PartialEq)]
-#[derive(sqlx::Type)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema, PartialEq, sqlx::Type,
+)]
 #[sqlx(type_name = "tag")]
 pub struct Tag {
     pub id: Uuid,
     pub name: String,
     pub color: String,
 }
-
 
 /// Represents a smart contract in the registry
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
@@ -156,7 +156,6 @@ pub struct NetworkInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status_message: Option<String>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NetworkListResponse {
@@ -1219,10 +1218,9 @@ mod tests {
 
     #[test]
     fn parses_comma_separated_networks() {
-        let params: ContractSearchParams = serde_json::from_str(
-            r#"{"networks":"mainnet,testnet"}"#,
-        )
-        .expect("query params should deserialize");
+        let params: ContractSearchParams =
+            serde_json::from_str(r#"{"networks":"mainnet,testnet"}"#)
+                .expect("query params should deserialize");
 
         assert_eq!(
             params.networks,
@@ -1232,10 +1230,9 @@ mod tests {
 
     #[test]
     fn parses_sequence_networks() {
-        let params: ContractSearchParams = serde_json::from_str(
-            r#"{"networks":["mainnet","futurenet"]}"#,
-        )
-        .expect("query params should deserialize");
+        let params: ContractSearchParams =
+            serde_json::from_str(r#"{"networks":["mainnet","futurenet"]}"#)
+                .expect("query params should deserialize");
 
         assert_eq!(
             params.networks,
@@ -1259,8 +1256,6 @@ pub struct SaveFavoriteSearchRequest {
     pub name: String,
     pub query_json: serde_json::Value,
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SearchSuggestion {
@@ -2013,7 +2008,6 @@ pub struct CreateAlertConfigRequest {
     pub threshold_value: f64,
     pub severity: Option<AlertSeverity>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
 #[sqlx(type_name = "similarity_match_type", rename_all = "snake_case")]
@@ -3175,8 +3169,6 @@ pub struct DiffSummary {
     pub breaking_count: i32,
 }
 
-
-
 // ═══════════════════════════════════════════════════════════════════════════
 // CONTRACT DEPLOYMENT SIMULATION (Issue #256)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3339,13 +3331,9 @@ fn default_true() -> bool {
     true
 }
 
-
-
 // ────────────────────────────────────────────────────────────────────────────
 // Contract changelog (release history)
 // ────────────────────────────────────────────────────────────────────────────
-
-
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ANALYTICS DASHBOARD (issue #430)
@@ -4245,10 +4233,10 @@ impl std::fmt::Display for ZkProofSystem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             ZkProofSystem::Groth16 => "groth16",
-            ZkProofSystem::Plonk   => "plonk",
-            ZkProofSystem::Stark   => "stark",
-            ZkProofSystem::Marlin  => "marlin",
-            ZkProofSystem::Fflonk  => "fflonk",
+            ZkProofSystem::Plonk => "plonk",
+            ZkProofSystem::Stark => "stark",
+            ZkProofSystem::Marlin => "marlin",
+            ZkProofSystem::Fflonk => "fflonk",
         };
         write!(f, "{}", s)
     }
@@ -4281,9 +4269,9 @@ impl std::fmt::Display for ZkProofStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             ZkProofStatus::Pending => "pending",
-            ZkProofStatus::Valid   => "valid",
+            ZkProofStatus::Valid => "valid",
             ZkProofStatus::Invalid => "invalid",
-            ZkProofStatus::Error   => "error",
+            ZkProofStatus::Error => "error",
         };
         write!(f, "{}", s)
     }

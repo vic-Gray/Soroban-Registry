@@ -5,6 +5,8 @@ mod aggregation;
 mod analytics;
 mod auth;
 mod auth_handlers;
+mod backup_handlers;
+mod backup_routes;
 mod batch_verify_handlers;
 mod breaking_changes;
 mod cache;
@@ -28,6 +30,7 @@ mod dependency;
 mod dependency_handlers;
 mod deprecation_handlers;
 mod error;
+mod error_logging;
 mod events;
 mod favorites_handlers;
 mod handlers;
@@ -44,13 +47,18 @@ mod models;
 mod multisig_handlers;
 mod multisig_routes;
 mod mutation_testing_handlers; // Issue #619
+mod notification_handlers;
+mod notification_routes;
 mod onchain_verification;
 #[cfg(feature = "openapi")]
 mod openapi;
 mod org_handlers;
 mod patch_handlers;
-mod plugin_marketplace_handlers;
 mod performance_handlers;
+mod plugin_marketplace_handlers;
+mod post_incident_handlers;
+mod post_incident_routes;
+mod publisher_verification_handlers;
 mod rate_limit;
 mod recommendation_handlers;
 mod release_notes_handlers;
@@ -69,25 +77,26 @@ mod state;
 mod clone_federation_handlers;
 mod formal_verification;
 mod formal_verification_handlers;
+mod gas_estimation_handlers;
 mod graph_analysis;
 mod graph_analysis_handlers;
 mod pagination;
-mod gas_estimation_handlers;
+mod quota_handlers;
+mod search_client;
 mod security_scan_handlers;
 mod subscription_handlers;
 mod type_safety;
 mod validation;
+mod verification_handlers;
 mod webhook_delivery;
 mod websocket;
-mod quota_handlers;
-mod verification_handlers;
 mod zk_proof_handlers;
 
 use anyhow::Result;
 use axum::extract::{Request, State};
 use axum::http::{header, HeaderValue, Method, StatusCode};
+use axum::middleware;
 use axum::response::Response;
-use axum::{middleware, Router};
 use dotenv::dotenv;
 use prometheus::Registry;
 use sqlx::postgres::PgPoolOptions;
@@ -113,7 +122,6 @@ async fn track_in_flight_middleware(
     api::metrics::HTTP_IN_FLIGHT.dec();
     Ok(res)
 }
-
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -142,7 +150,9 @@ async fn main() -> Result<()> {
         .max_connections(max_pool_size)
         .acquire_timeout(std::time::Duration::from_secs(30))
         .connect_with(
-            config.database_url.parse::<sqlx::postgres::PgConnectOptions>()?
+            config
+                .database_url
+                .parse::<sqlx::postgres::PgConnectOptions>()?,
         )
         .await?;
 
@@ -190,7 +200,14 @@ async fn main() -> Result<()> {
     let rate_limit_state = std::sync::Arc::new(RateLimitState::from_env());
     rate_limit_state.spawn_eviction_task();
 
-    let state = AppState::new(pool.clone(), registry, job_engine, is_shutting_down.clone(), rate_limit_state.clone()).await?;
+    let state = AppState::new(
+        pool.clone(),
+        registry,
+        job_engine,
+        is_shutting_down.clone(),
+        rate_limit_state.clone(),
+    )
+    .await?;
 
     // Initialize GraphQL schema
     let schema = graphql::schema::build_schema(state.clone());
@@ -253,48 +270,7 @@ async fn main() -> Result<()> {
         ]);
 
     // Build router
-    let app = Router::new()
-        .merge(routes::auth_routes())
-        .merge(routes::plugin_routes())
-        .merge(routes::organization_routes())
-        .merge(routes::contract_routes())
-        .merge(routes::publisher_routes())
-        .merge(routes::contributor_routes())
-        .merge(routes::health_routes())
-        .merge(routes::migration_routes())
-        .merge(incident_routes::incident_routes())
-        .merge(routes::network_routes())
-        .merge(routes::openapi_routes())
-        .merge(routes::health_monitor_routes())
-        .merge(routes::admin_routes())
-        .merge(routes::category_routes())
-        .merge(routes::compatibility_dashboard_routes())
-        .merge(routes::governance_routes())
-        .merge(routes::canary_routes())
-        .merge(routes::ab_test_routes())
-        .merge(routes::performance_routes())
-        .merge(routes::federation_routes())
-        .merge(routes::mutation_testing_routes()) // Issue #619
-        .merge(multisig_routes::routes())
-        .merge(routes::collaborative_review_routes())
-        .merge(routes::observability_routes())
-        .merge(routes::websocket_routes())
-        .merge(routes::subscription_routes())
-        .merge(routes::graph_analysis_routes())
-        .merge(routes::formal_verification_routes())
-        .merge(routes::verification_status_routes())
-        .merge(routes::quota_routes())
-        .merge(routes::validator_routes())
-        .merge(release_notes_routes::release_notes_routes())
-        .route(
-            "/api/graphql",
-            axum::routing::post(graphql::graphql_handler).with_state(schema),
-        )
-        .route(
-            "/api/graphql/playground",
-            axum::routing::get(graphql::graphql_playground),
-        )
-        .nest("/api", activity_feed_routes::routes())
+    let app = routes::application_routes(schema)
         .fallback(handlers::route_not_found)
         .layer(middleware::from_fn(
             validation::payload_size::payload_size_validation_middleware,

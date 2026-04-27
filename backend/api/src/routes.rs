@@ -4,7 +4,7 @@ use crate::{
     ab_test_handlers, analytics_handlers, auth, auth_handlers, batch_verify_handlers,
     breaking_changes, canary_handlers, category_handlers, clone_federation_handlers,
     compatibility_testing_handlers, contract_events, custom_metrics_handlers, deprecation_handlers,
-    formal_verification_handlers, gas_estimation_handlers, governance_handlers,
+    error_logging, formal_verification_handlers, gas_estimation_handlers, governance_handlers,
     graph_analysis_handlers, handlers, interoperability_handlers, metrics_handler,
     migration_handlers, mutation_testing_handlers, org_handlers, patch_handlers,
     performance_handlers, plugin_marketplace_handlers, publisher_verification_handlers,
@@ -23,8 +23,89 @@ use utoipa::OpenApi;
 #[cfg(feature = "openapi")]
 use utoipa_swagger_ui::SwaggerUi;
 
+/// Build the application route tree grouped by resource domain.
+///
+/// `main.rs` owns process setup, middleware, and graceful shutdown; this module
+/// owns route registration so resource groups stay discoverable and testable.
+pub fn application_routes(schema: crate::graphql::schema::RegistrySchema) -> Router<AppState> {
+    Router::new()
+        // Identity and marketplace primitives
+        .merge(auth_routes())
+        .merge(plugin_routes())
+        .merge(organization_routes())
+        .merge(publisher_routes())
+        .merge(contributor_routes())
+        // Contracts and lifecycle operations
+        .merge(contract_routes())
+        .merge(category_routes())
+        .merge(network_routes())
+        .merge(canary_routes())
+        .merge(ab_test_routes())
+        .merge(performance_routes())
+        .merge(federation_routes())
+        .merge(multisig_routes_group())
+        .merge(security_scanning_routes())
+        .merge(zk_proof_routes())
+        .merge(backup_routes())
+        .merge(post_incident_routes())
+        // Analysis, verification, and collaboration
+        .merge(compatibility_dashboard_routes())
+        .merge(governance_routes())
+        .merge(mutation_testing_routes())
+        .merge(collaborative_review_routes())
+        .merge(subscription_routes())
+        .merge(notification_routes())
+        .merge(graph_analysis_routes())
+        .merge(formal_verification_routes())
+        .merge(verification_status_routes())
+        .merge(release_notes_routes())
+        // Operations
+        .merge(health_routes())
+        .merge(health_monitor_routes())
+        .merge(admin_routes())
+        .merge(migration_routes())
+        .merge(crate::incident_routes::incident_routes())
+        .merge(observability_routes())
+        .merge(websocket_routes())
+        .merge(quota_routes())
+        .merge(validator_routes())
+        .merge(openapi_routes())
+        .route(
+            "/api/graphql",
+            axum::routing::post(crate::graphql::graphql_handler).with_state(schema),
+        )
+        .route(
+            "/api/graphql/playground",
+            axum::routing::get(crate::graphql::graphql_playground),
+        )
+        .nest("/api", crate::activity_feed_routes::routes())
+}
+
+fn multisig_routes_group() -> Router<AppState> {
+    Router::new().merge(crate::multisig_routes::routes())
+}
+
+fn backup_routes() -> Router<AppState> {
+    crate::backup_routes::backup_routes()
+}
+
+fn notification_routes() -> Router<AppState> {
+    crate::notification_routes::notification_routes()
+}
+
+fn post_incident_routes() -> Router<AppState> {
+    crate::post_incident_routes::post_incident_routes()
+}
+
+fn release_notes_routes() -> Router<AppState> {
+    crate::release_notes_routes::release_notes_routes()
+}
+
 pub fn observability_routes() -> Router<AppState> {
-    Router::new().route("/metrics", get(metrics_handler::metrics_endpoint))
+    Router::new()
+        .route("/metrics", get(metrics_handler::metrics_endpoint))
+        .route("/api/errors/report", post(error_logging::report_error))
+        .route("/api/errors/dashboard", get(error_logging::error_dashboard))
 }
 
 pub fn auth_routes() -> Router<AppState> {
@@ -927,8 +1008,7 @@ pub fn zk_proof_routes() -> Router<AppState> {
         // ── Circuit management ─────────────────────────────────────────
         .route(
             "/api/contracts/:id/zk/circuits",
-            post(zk_proof_handlers::register_circuit)
-                .get(zk_proof_handlers::list_circuits),
+            post(zk_proof_handlers::register_circuit).get(zk_proof_handlers::list_circuits),
         )
         .route(
             "/api/contracts/:id/zk/circuits/:circuit_id",
@@ -937,8 +1017,7 @@ pub fn zk_proof_routes() -> Router<AppState> {
         // ── Proof submission & validation ──────────────────────────────
         .route(
             "/api/contracts/:id/zk/proofs",
-            post(zk_proof_handlers::submit_proof)
-                .get(zk_proof_handlers::list_proofs),
+            post(zk_proof_handlers::submit_proof).get(zk_proof_handlers::list_proofs),
         )
         .route(
             "/api/contracts/:id/zk/proofs/:proof_id",

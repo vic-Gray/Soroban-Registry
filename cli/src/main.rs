@@ -282,19 +282,31 @@ pub enum Commands {
         json: bool,
     },
 
-    /// Export a contract archive (.tar.gz)
+    /// Export contract registry data or a contract archive
     Export {
-        /// Contract registry ID (UUID)
+        /// Contract registry ID (UUID or on-chain address). Omit to export a filtered contract list.
         #[arg(long)]
-        id: String,
+        id: Option<String>,
 
-        /// Output archive path
-        #[arg(long, default_value = "contract-export.tar.gz")]
-        output: String,
+        /// Output file path. Defaults to contracts-export.<format> or contract-export.tar.gz for archive.
+        #[arg(long, short = 'o')]
+        output: Option<String>,
 
         /// Path to contract source directory
         #[arg(long, default_value = ".")]
         contract_dir: String,
+
+        /// Export format: json, csv, markdown, or archive
+        #[arg(long, short = 'f')]
+        format: Option<String>,
+
+        /// Filter to apply to registry exports, e.g. --filter network=mainnet --filter verified_only=true
+        #[arg(long = "filter")]
+        filters: Vec<String>,
+
+        /// Number of contracts to fetch per API page for list exports
+        #[arg(long, default_value_t = 100)]
+        page_size: usize,
     },
 
     /// Import contract data from a file (JSON, CSV, or Archive)
@@ -2004,9 +2016,26 @@ pub async fn dispatch_command(
             id,
             output,
             contract_dir,
+            format,
+            filters,
+            page_size,
         } => {
-            log::debug!("Command: export | id={} output={}", id, output);
-            commands::export(&cli.api_url, &id, &output, &contract_dir).await?;
+            log::debug!(
+                "Command: export | id={:?} output={:?} format={:?}",
+                id,
+                output,
+                format
+            );
+            commands::export(
+                &cli.api_url,
+                id.as_deref(),
+                output.as_deref(),
+                &contract_dir,
+                format.as_deref(),
+                filters,
+                page_size,
+            )
+            .await?;
         }
         Commands::Import {
             file,

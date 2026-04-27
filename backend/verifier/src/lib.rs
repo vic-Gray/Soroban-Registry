@@ -7,12 +7,10 @@ use tokio::fs;
 use tokio::process::Command;
 use tokio::time::timeout;
 use sha2::{Sha256, Digest};
-use tempfile::tempdir;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde_json::Value;
 use std::process::Stdio;
 use tempfile::TempDir;
-use tokio::{process::Command, time::timeout};
 use tracing::instrument;
 
 const DEFAULT_SOROBAN_SDK_VERSION: &str = "21.7.7";

@@ -1371,24 +1371,37 @@ pub async fn migrate(
     Ok(())
 }
 
-pub async fn export(_api_url: &str, id: &str, output: &str, contract_dir: &str) -> Result<()> {
-    let source = std::path::Path::new(contract_dir);
-    anyhow::ensure!(
-        source.is_dir(),
-        "contract directory does not exist: {}",
-        contract_dir
-    );
-    crate::export::create_archive(
-        source,
-        std::path::Path::new(output),
+pub async fn export(
+    api_url: &str,
+    id: Option<&str>,
+    output: Option<&str>,
+    contract_dir: &str,
+    format: Option<&str>,
+    filters: Vec<String>,
+    page_size: usize,
+) -> Result<()> {
+    let resolved_format = crate::export::RegistryExportFormat::resolve(format, id, output)?;
+    let summary = crate::export::export_registry_data(crate::export::RegistryExportOptions {
+        api_url,
         id,
-        "contract",
-        "testnet",
-    )?;
+        output,
+        contract_dir,
+        format: resolved_format,
+        filters,
+        page_size,
+    })
+    .await?;
+
     println!("{}", "✓ Export complete!".green().bold());
-    println!("  {}: {}", "Output".bold(), output);
-    println!("  {}: {}", "Contract".bold(), id.bright_black());
-    println!("  {}: contract\n", "Name".bold());
+    println!(
+        "  {}: {}",
+        "Format".bold(),
+        format!("{:?}", summary.format).to_lowercase()
+    );
+    println!("  {}: {}", "Items".bold(), summary.items_exported);
+    println!("  {}: {}", "Output".bold(), summary.output_path);
+    println!("  {}: {}", "SHA-256".bold(), summary.sha256.bright_black());
+    println!("  {}: {}\n", "Checksum".bold(), summary.checksum_path);
     Ok(())
 }
 

@@ -4,22 +4,18 @@ use crate::contract_events::ContractEventHub;
 use crate::health_monitor::HealthMonitorStatus;
 use crate::rate_limit::RateLimitState;
 use crate::resource_tracking::ResourceManager;
+use crate::search_client::SearchClient;
 use shared::source_storage::SourceStorage;
 
 use prometheus::Registry;
 use sqlx::PgPool;
-use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
-use crate::SearchClient;
 
-use tokio::sync::broadcast;
-use shared::models::Network;
-use shared::source_storage::SourceStorage;
-use crate::error::ApiError;
-use crate::contract_events::ContractEventHub;
 use serde_json::Value;
+use shared::models::Network;
+use tokio::sync::broadcast;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -89,6 +85,7 @@ pub struct AppState {
     pub resource_mgr: Arc<RwLock<ResourceManager>>,
     pub source_storage: Arc<SourceStorage>,
     pub event_broadcaster: broadcast::Sender<RealtimeEvent>,
+    pub search: Arc<SearchClient>,
     /// Rate limiter reference — used by the /api/quota endpoint (issue #727).
     pub rate_limit_state: Arc<RateLimitState>,
 }
@@ -122,7 +119,8 @@ impl AppState {
         let contract_events = Arc::new(ContractEventHub::from_env());
         let source_storage = Arc::new(SourceStorage::new().await?);
         let (event_broadcaster, _) = broadcast::channel(100);
-        let elasticsearch_url = std::env::var("ELASTICSEARCH_URL").unwrap_or_else(|_| "http://localhost:9200".to_string());
+        let elasticsearch_url = std::env::var("ELASTICSEARCH_URL")
+            .unwrap_or_else(|_| "http://localhost:9200".to_string());
         let search = Arc::new(SearchClient::new(&elasticsearch_url).expect("Search client init"));
 
         Ok(Self {
@@ -138,6 +136,7 @@ impl AppState {
             resource_mgr,
             source_storage,
             event_broadcaster,
+            search,
             rate_limit_state,
         })
     }

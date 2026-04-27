@@ -18,7 +18,7 @@ use crate::{
     state::AppState,
 };
 use shared::{
-    AuditActionType, CloneContractRequest, CloneContractResponse, Contract,
+    AuditActionType, CloneContractHistory, CloneContractRequest, CloneContractResponse, Contract,
     DuplicateDetectionResult, FederatedRegistry, FederatedRegistryListResponse,
     FederatedRegistryResponse, FederatedRegistrySummary, FederationAttribution,
     FederationDiscoveryResponse, FederationOptRequest, FederationProtocolConfig,

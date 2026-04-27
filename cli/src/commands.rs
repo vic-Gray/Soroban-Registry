@@ -127,6 +127,7 @@ pub async fn search(
     verified_only: bool,
     networks: Vec<String>,
     category: Option<&str>,
+    sort: Option<&str>,
     limit: usize,
     offset: usize,
     json: bool,
@@ -152,6 +153,10 @@ pub async fn search(
 
     if let Some(cat) = category {
         params.push(("category", cat.to_string()));
+    }
+
+    if let Some(s) = sort {
+        params.push(("sort", s.to_string()));
     }
 
     let response = client

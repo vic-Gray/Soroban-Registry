@@ -42,6 +42,8 @@ mod shell;
 mod plugins;
 mod deploy;
 mod upgrade;
+mod compare;
+mod verification;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -87,6 +89,9 @@ pub enum Commands {
         /// Filter by contract category (e.g. DEX, token, lending, oracle)
         #[arg(long)]
         category: Option<String>,
+        /// Sort field (e.g. name, created_at, network)
+        #[arg(long)]
+        sort: Option<String>,
         /// Maximum number of results to return
         #[arg(long, default_value = "20")]
         limit: usize,
@@ -177,6 +182,25 @@ pub enum Commands {
     Info {
         /// Contract ID or slug
         id: String,
+    },
+
+    /// Compare multiple contracts
+    Compare {
+        /// Contract IDs to compare (2 to 4 contracts)
+        #[arg(required = true, num_args = 2..=4)]
+        ids: Vec<String>,
+        
+        /// Output detailed comparison as JSON
+        #[arg(long)]
+        json: bool,
+        
+        /// Export comparison report to a file (csv or json)
+        #[arg(long)]
+        export: Option<String>,
+        
+        /// Export format (csv or json). Derived from file extension if not provided.
+        #[arg(long)]
+        format: Option<String>,
     },
 
     /// Check CLI version and update availability
@@ -535,7 +559,7 @@ pub enum Commands {
     },
 
     /// Verify a signed contract package
-    Verify {
+    VerifyPackage {
         /// Path to the package file to verify
         package: String,
 
@@ -550,6 +574,41 @@ pub enum Commands {
         /// Signature (base64, optional - will lookup from registry if not provided)
         #[arg(long)]
         signature: Option<String>,
+    },
+
+    /// Verify a contract in the registry (check status, submit for audit, or show history)
+    Verify {
+        /// Contract UUID or on-chain address
+        #[arg(required_unless_present_any = ["history", "check"])]
+        id: Option<String>,
+
+        /// Submit for verification (requires id or local project)
+        #[arg(long, short = 's')]
+        submit: bool,
+
+        /// Check current verification status
+        #[arg(long, short = 'c')]
+        check: bool,
+
+        /// Show verification history
+        #[arg(long)]
+        history: bool,
+
+        /// Verification level: basic, intermediate, advanced
+        #[arg(long, default_value = "basic")]
+        level: String,
+
+        /// Output results as JSON
+        #[arg(long, short = 'j')]
+        json: bool,
+
+        /// Path to contract project directory (defaults to current dir)
+        #[arg(long, default_value = ".")]
+        path: String,
+
+        /// Optional notes for submission
+        #[arg(long)]
+        notes: Option<String>,
     },
 
     /// Verify a contract binary against an Ed25519 signature locally
@@ -1597,6 +1656,7 @@ pub async fn dispatch_command(
             verified_only,
             network: filter_networks,
             category,
+            sort,
             limit,
             offset,
             json,
@@ -1605,11 +1665,12 @@ pub async fn dispatch_command(
                 .map(|n| n.split(',').map(|s| s.trim().to_string()).collect())
                 .unwrap_or_default();
             log::debug!(
-                "Command: search | query={:?} verified_only={} networks={:?} category={:?}",
+                "Command: search | query={:?} verified_only={} networks={:?} category={:?} sort={:?}",
                 query,
                 verified_only,
                 networks_vec,
-                category
+                category,
+                sort
             );
             commands::search(
                 &cli.api_url,
@@ -1618,6 +1679,7 @@ pub async fn dispatch_command(
                 verified_only,
                 networks_vec,
                 category.as_deref(),
+                sort.as_deref(),
                 limit,
                 offset,
                 json,
@@ -1626,6 +1688,9 @@ pub async fn dispatch_command(
         }
         Commands::Info { id } => {
             commands::contract_info(&cli.api_url, &id).await?;
+        }
+        Commands::Compare { ids, json, export, format } => {
+            compare::run(&cli.api_url, ids, json, export.as_deref(), format.as_deref()).await?;
         }
         Commands::Version => {
             version::check_version().await?;
@@ -2257,14 +2322,14 @@ pub async fn dispatch_command(
             )
             .await?;
         }
-        Commands::Verify {
+        Commands::VerifyPackage {
             package,
             contract_id,
             version,
             signature,
         } => {
             log::debug!(
-                "Command: verify | package={} contract_id={}",
+                "Command: verify-package | package={} contract_id={}",
                 package,
                 contract_id
             );
@@ -2276,6 +2341,19 @@ pub async fn dispatch_command(
                 signature.as_deref(),
             )
             .await?;
+        }
+        Commands::Verify {
+            id,
+            submit,
+            check,
+            history,
+            level,
+            json,
+            path,
+            notes,
+        } => {
+            log::debug!("Command: verify | id={:?} submit={} check={}", id, submit, check);
+            verification::run(&cli.api_url, id, submit, check, history, level, json, &path, notes).await?;
         }
         Commands::VerifyContract {
             wasm_path,

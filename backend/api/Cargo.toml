@@ -9,6 +9,10 @@ license.workspace = true
 default = ["openapi"]
 openapi = []
 
+[lib]
+name = "api"
+path = "src/lib.rs"
+
 [[bin]]
 name = "api"
 path = "src/main.rs"
@@ -41,6 +45,8 @@ once_cell = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 dotenv = { workspace = true }
+elasticsearch = { workspace = true }
+envy = { workspace = true }
 aes-gcm = { workspace = true }
 rand = { workspace = true }
 base64 = { workspace = true }

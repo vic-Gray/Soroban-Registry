@@ -437,7 +437,7 @@ async fn handle_socket(
     static CONNECTION_COUNTER: AtomicU64 = AtomicU64::new(0);
     let connection_id = CONNECTION_COUNTER.fetch_add(1, Ordering::Relaxed);
     let (mut sender, mut receiver) = socket.split();
-    let mut events = state.event_broadcaster.subscribe();
+    let mut events = state.contract_events.subscribe();
 
     // Fixed intervals for heartbeat and reconnect
     let heartbeat_ms: u64 = 30_000; // 30 seconds
@@ -591,7 +591,7 @@ mod tests {
             network: Network::Testnet,
             is_verified: false,
             category: Some("DeFi".to_string()),
-            tags: vec!["amm".to_string()],
+            tags: vec![shared::Tag { id: Uuid::nil(), name: "amm".to_string(), color: "#888888".to_string() }],
             created_at: Utc::now(),
             updated_at: Utc::now(),
             health_score: 0,

@@ -12,11 +12,14 @@ use uuid::Uuid;
 
 /// Represents a tag that can be attached to a contract
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema, PartialEq)]
+#[derive(sqlx::Type)]
+#[sqlx(type_name = "tag")]
 pub struct Tag {
     pub id: Uuid,
     pub name: String,
     pub color: String,
 }
+
 
 /// Represents a smart contract in the registry
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
@@ -151,6 +154,7 @@ pub struct NetworkInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status_message: Option<String>,
 }
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NetworkListResponse {
@@ -329,6 +333,35 @@ pub struct ContractVersion {
     /// The version string that was reverted to, when is_revert = true (Issue #486)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reverted_from: Option<String>,
+}
+
+/// Represents a historical version of contract metadata (#729)
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct ContractMetadataVersion {
+    pub id: Uuid,
+    pub contract_id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub name: String,
+    pub description: Option<String>,
+    pub category: Option<String>,
+    pub tags: Vec<String>,
+    pub change_summary: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Represents a difference in a single field of metadata (#729)
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct MetadataDiff {
+    pub field: String,
+    pub old_value: Option<serde_json::Value>,
+    pub new_value: Option<serde_json::Value>,
+}
+
+/// Response containing the metadata history for a contract (#729)
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct MetadataHistoryResponse {
+    pub contract_id: Uuid,
+    pub versions: Vec<ContractMetadataVersion>,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1924,10 +1957,10 @@ pub struct ContractPerformanceSummaryResponse {
     pub contract_id: Uuid,
     pub latest_benchmarks: Vec<PerformanceBenchmark>,
     pub metric_snapshots: Vec<PerformanceMetricSnapshot>,
-    pub trend_points: Vec<PerformanceTrendPoint>,
+    pub trends: Vec<PerformanceTrendPoint>,
     pub regressions: Vec<PerformanceRegression>,
-    pub recent_anomalies: Vec<PerformanceAnomaly>,
-    pub recent_alerts: Vec<PerformanceAlert>,
+    pub comparisons: Vec<PerformanceComparisonEntry>,
+    pub unresolved_alerts: Vec<PerformanceAlert>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -1938,6 +1971,7 @@ pub struct CreateAlertConfigRequest {
     pub threshold_value: f64,
     pub severity: Option<AlertSeverity>,
 }
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
 #[sqlx(type_name = "similarity_match_type", rename_all = "snake_case")]
@@ -3773,6 +3807,17 @@ pub enum IssueSeverity {
     Critical,
 }
 
+impl std::fmt::Display for IssueSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Low => write!(f, "low"),
+            Self::Medium => write!(f, "medium"),
+            Self::High => write!(f, "high"),
+            Self::Critical => write!(f, "critical"),
+        }
+    }
+}
+
 /// Security issue status
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema, PartialEq)]
 #[sqlx(type_name = "issue_status_type", rename_all = "snake_case")]
@@ -3898,7 +3943,7 @@ pub struct ContractSecuritySummary {
 }
 
 /// Summary of a single security scan
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct SecurityScanSummary {
     pub id: Uuid,
     pub status: ScanStatus,
@@ -3953,6 +3998,16 @@ pub enum NotificationFrequency {
     Realtime,
     DailyDigest,
     WeeklyDigest,
+}
+
+impl std::fmt::Display for NotificationFrequency {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Realtime => write!(f, "realtime"),
+            Self::DailyDigest => write!(f, "daily_digest"),
+            Self::WeeklyDigest => write!(f, "weekly_digest"),
+        }
+    }
 }
 
 /// Subscription status
@@ -4090,7 +4145,7 @@ pub struct UserSubscriptionsResponse {
 }
 
 /// Summary of a contract subscription
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct ContractSubscriptionSummary {
     pub id: Uuid,
     pub contract_id: Uuid,

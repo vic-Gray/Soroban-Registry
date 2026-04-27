@@ -5,6 +5,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
 
+
 /// Cache configuration options
 #[derive(Clone, Debug)]
 pub struct CacheConfig {

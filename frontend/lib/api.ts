@@ -172,7 +172,29 @@ export interface ContractVersion {
   source_url?: string;
   commit_hash?: string;
   release_notes?: string;
+  change_notes?: string;
+  is_revert?: boolean;
+  reverted_from?: string;
   created_at: string;
+}
+
+export interface VersionFieldDiff {
+  field: string;
+  from_value: unknown;
+  to_value: unknown;
+}
+
+export interface VersionCompareResponse {
+  contract_id: string;
+  from_version: ContractVersion;
+  to_version: ContractVersion;
+  differences: VersionFieldDiff[];
+  wasm_changed: boolean;
+}
+
+export interface RevertVersionRequest {
+  change_notes?: string;
+  admin_id: string;
 }
 
 export interface ContractAbiResponse {
@@ -235,14 +257,14 @@ export interface Publisher {
   created_at: string;
 }
 
-export type AnalyticsEventType = 
-  | 'contract_published' 
-  | 'contract_verified' 
-  | 'contract_deployed' 
-  | 'version_created' 
-  | 'contract_updated' 
-  | 'publisher_created' 
-  | 'search_click';
+export type AnalyticsEventType =
+  | "contract_published"
+  | "contract_verified"
+  | "contract_deployed"
+  | "version_created"
+  | "contract_updated"
+  | "publisher_created"
+  | "search_click";
 
 export interface AnalyticsEvent {
   id: string;
@@ -289,7 +311,7 @@ export interface MaintenanceWindow {
   scheduled_end_at?: string;
 }
 
-export type MaturityLevel = 'alpha' | 'beta' | 'stable' | 'mature' | 'legacy';
+export type MaturityLevel = "alpha" | "beta" | "stable" | "mature" | "legacy";
 
 export interface ContractSearchParams {
   query?: string;
@@ -302,11 +324,20 @@ export interface ContractSearchParams {
   languages?: string[];
   author?: string;
   tags?: string[];
-  maturity?: 'alpha' | 'beta' | 'stable' | 'mature' | 'legacy';
+  maturity?: "alpha" | "beta" | "stable" | "mature" | "legacy";
   page?: number;
   page_size?: number;
-  sort_by?: 'name' | 'created_at' | 'updated_at' | 'popularity' | 'deployments' | 'interactions' | 'relevance' | 'downloads' | 'rating';
-  sort_order?: 'asc' | 'desc';
+  sort_by?:
+    | "name"
+    | "created_at"
+    | "updated_at"
+    | "popularity"
+    | "deployments"
+    | "interactions"
+    | "relevance"
+    | "downloads"
+    | "rating";
+  sort_order?: "asc" | "desc";
   date_from?: string;
   date_to?: string;
 }
@@ -349,8 +380,7 @@ export interface SemanticSearchMetadata {
   query_suggestions: string[];
 }
 
-export interface SemanticContractSearchResponse
-  extends PaginatedResponse<Contract> {
+export interface SemanticContractSearchResponse extends PaginatedResponse<Contract> {
   semantic: SemanticSearchMetadata;
 }
 
@@ -365,7 +395,7 @@ export interface PublishRequest {
   publisher_address: string;
 }
 
-export type CustomMetricType = 'counter' | 'gauge' | 'histogram';
+export type CustomMetricType = "counter" | "gauge" | "histogram";
 
 export interface MetricCatalogEntry {
   metric_name: string;
@@ -398,18 +428,18 @@ export interface MetricSeriesResponse {
   contract_id: string;
   metric_name: string;
   metric_type: CustomMetricType | null;
-  resolution: 'hour' | 'day' | 'raw';
+  resolution: "hour" | "day" | "raw";
   points?: MetricSeriesPoint[];
   samples?: MetricSample[];
 }
 
-export type DeprecationStatus = 'active' | 'deprecated' | 'retired';
+export type DeprecationStatus = "active" | "deprecated" | "retired";
 
-export type ReleaseNotesStatus = 'draft' | 'published';
+export type ReleaseNotesStatus = "draft" | "published";
 
 export interface FunctionChange {
   name: string;
-  change_type: 'added' | 'removed' | 'modified';
+  change_type: "added" | "removed" | "modified";
   old_signature?: string;
   new_signature?: string;
   is_breaking: boolean;
@@ -501,7 +531,10 @@ function dedupe<T>(values: T[]): T[] {
   return Array.from(new Set(values));
 }
 
-function detectIntent(query: string, params?: ContractSearchParams): SearchIntent {
+function detectIntent(
+  query: string,
+  params?: ContractSearchParams,
+): SearchIntent {
   const tokens = tokenizeQuery(query);
   const categories = dedupe(
     tokens
@@ -521,7 +554,9 @@ function detectIntent(query: string, params?: ContractSearchParams): SearchInten
   );
 
   const verifiedOnly =
-    tokens.includes("verified") || tokens.includes("audited") || Boolean(params?.verified_only);
+    tokens.includes("verified") ||
+    tokens.includes("audited") ||
+    Boolean(params?.verified_only);
 
   const authorTokenIndex = tokens.findIndex(
     (token) => token === "by" || token === "from" || token === "author",
@@ -560,7 +595,11 @@ function detectIntent(query: string, params?: ContractSearchParams): SearchInten
   };
 }
 
-function semanticScore(contract: Contract, queryTokens: string[], intent: SearchIntent): number {
+function semanticScore(
+  contract: Contract,
+  queryTokens: string[],
+  intent: SearchIntent,
+): number {
   const haystack = [
     contract.name,
     contract.description || "",
@@ -575,7 +614,8 @@ function semanticScore(contract: Contract, queryTokens: string[], intent: Search
     (count, token) => (haystack.includes(token) ? count + 1 : count),
     0,
   );
-  const tokenCoverage = queryTokens.length > 0 ? tokenMatches / queryTokens.length : 0;
+  const tokenCoverage =
+    queryTokens.length > 0 ? tokenMatches / queryTokens.length : 0;
   let score = tokenCoverage;
 
   if (intent.extracted.categories.length > 0 && contract.category) {
@@ -585,7 +625,10 @@ function semanticScore(contract: Contract, queryTokens: string[], intent: Search
     if (categoryMatch) score += 0.35;
   }
 
-  if (intent.extracted.networks.length > 0 && intent.extracted.networks.includes(contract.network)) {
+  if (
+    intent.extracted.networks.length > 0 &&
+    intent.extracted.networks.includes(contract.network)
+  ) {
     score += 0.2;
   }
 
@@ -604,11 +647,15 @@ function rerankContracts(
   const tokens = tokenizeQuery(query);
   if (tokens.length === 0) return contracts;
   return [...contracts].sort(
-    (a, b) => semanticScore(b, tokens, intent) - semanticScore(a, tokens, intent),
+    (a, b) =>
+      semanticScore(b, tokens, intent) - semanticScore(a, tokens, intent),
   );
 }
 
-function buildSemanticSuggestions(query: string, intent: SearchIntent): string[] {
+function buildSemanticSuggestions(
+  query: string,
+  intent: SearchIntent,
+): string[] {
   const suggestions: string[] = [];
   if (intent.extracted.categories.length === 0) {
     suggestions.push(`${query} DeFi`, `${query} NFT`);
@@ -627,24 +674,24 @@ function buildSemanticSuggestions(query: string, intent: SearchIntent): string[]
  */
 async function handleApiCall<T>(
   apiCall: () => Promise<Response>,
-  endpoint: string
+  endpoint: string,
 ): Promise<T> {
   try {
     const response = await apiCall();
-    
+
     if (!response.ok) {
       const errorData = await extractErrorData(response);
       throw createApiError(response.status, errorData, endpoint);
     }
-    
+
     try {
       return await response.json();
     } catch (parseError) {
       throw new ApiError(
-        'Failed to parse server response',
+        "Failed to parse server response",
         response.status,
         parseError,
-        endpoint
+        endpoint,
       );
     }
   } catch (error) {
@@ -652,25 +699,37 @@ async function handleApiCall<T>(
     if (error instanceof ApiError) {
       throw error;
     }
-    
+
     // Handle network errors
     if (error instanceof TypeError) {
       const message = error.message.toLowerCase();
-      if (message.includes('fetch') || message.includes('network') || message.includes('failed to fetch')) {
+      if (
+        message.includes("fetch") ||
+        message.includes("network") ||
+        message.includes("failed to fetch")
+      ) {
         throw new NetworkError(
-          'Unable to connect to the server. Please check your internet connection.',
-          endpoint
+          "Unable to connect to the server. Please check your internet connection.",
+          endpoint,
         );
       }
     }
-    
+
     // Handle timeout errors
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new NetworkError('The request timed out. Please try again.', endpoint);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new NetworkError(
+        "The request timed out. Please try again.",
+        endpoint,
+      );
     }
-    
+
     // Unknown error
-    throw new ApiError('An unexpected error occurred', undefined, error, endpoint);
+    throw new ApiError(
+      "An unexpected error occurred",
+      undefined,
+      error,
+      endpoint,
+    );
   }
 }
 
@@ -777,9 +836,13 @@ export const api = {
               ? [params.language]
               : [];
           if (languages.length > 0) {
-            const normalized = languages.map((language) => language.toLowerCase());
+            const normalized = languages.map((language) =>
+              language.toLowerCase(),
+            );
             filtered = filtered.filter((c) =>
-              c.tags.some((tag: string) => normalized.includes(tag.toLowerCase())),
+              c.tags.some((tag: string) =>
+                normalized.includes(tag.toLowerCase()),
+              ),
             );
           }
 
@@ -796,13 +859,17 @@ export const api = {
 
           if (params?.date_from) {
             const fromTime = new Date(params.date_from).getTime();
-            filtered = filtered.filter((c) => new Date(c.created_at).getTime() >= fromTime);
+            filtered = filtered.filter(
+              (c) => new Date(c.created_at).getTime() >= fromTime,
+            );
           }
           if (params?.date_to) {
             const toDate = new Date(params.date_to);
             toDate.setUTCHours(23, 59, 59, 999);
             const toTime = toDate.getTime();
-            filtered = filtered.filter((c) => new Date(c.created_at).getTime() <= toTime);
+            filtered = filtered.filter(
+              (c) => new Date(c.created_at).getTime() <= toTime,
+            );
           }
 
           const sortBy = params?.sort_by || "created_at";
@@ -830,7 +897,8 @@ export const api = {
               return aDownloads - bDownloads;
             }
             return (
-              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+              new Date(a.created_at).getTime() -
+              new Date(b.created_at).getTime()
             );
           });
           if (sortOrder === "desc") {
@@ -856,9 +924,12 @@ export const api = {
 
     const queryParams = new URLSearchParams();
     if (params?.query) queryParams.append("query", params.query);
-    if (params?.contract_id) queryParams.append("contract_id", params.contract_id);
+    if (params?.contract_id)
+      queryParams.append("contract_id", params.contract_id);
     if (params?.network) queryParams.append("network", params.network);
-    params?.networks?.forEach((network) => queryParams.append("networks", network));
+    params?.networks?.forEach((network) =>
+      queryParams.append("networks", network),
+    );
     if (params?.verified_only !== undefined)
       queryParams.append("verified_only", String(params.verified_only));
     if (params?.category) queryParams.append("category", params.category);
@@ -875,10 +946,10 @@ export const api = {
     // For legacy UI labels we keep a small compatibility mapping.
     if (params?.sort_by) {
       const backendSortBy =
-        params.sort_by === 'downloads'
-          ? 'interactions'
-          : params.sort_by === 'rating'
-            ? 'popularity'
+        params.sort_by === "downloads"
+          ? "interactions"
+          : params.sort_by === "rating"
+            ? "popularity"
             : params.sort_by;
       queryParams.append("sort_by", backendSortBy);
     }
@@ -889,15 +960,16 @@ export const api = {
 
     const data = await handleApiCall<PaginatedResponse<Contract>>(
       () => fetch(`${API_URL}/api/contracts?${queryParams}`),
-      '/api/contracts'
+      "/api/contracts",
     );
     // Normalize legacy field names from older backend responses
     const raw = data as unknown as Record<string, unknown>;
-    const normalized = { ...data } as PaginatedResponse<Contract> & Record<string, unknown>;
+    const normalized = { ...data } as PaginatedResponse<Contract> &
+      Record<string, unknown>;
     if (Array.isArray(raw.contracts) && !Array.isArray(raw.items)) {
       normalized.items = raw.contracts as Contract[];
     }
-    if (typeof raw.pages === 'number' && raw.total_pages === undefined) {
+    if (typeof raw.pages === "number" && raw.total_pages === undefined) {
       normalized.total_pages = raw.pages as number;
     }
     return normalized;
@@ -930,7 +1002,8 @@ export const api = {
     const semanticResult = await api.getContracts(semanticParams);
     let fallbackUsed = false;
     let finalResult = semanticResult;
-    const shouldFallback = rawQuery.length > 0 && semanticResult.items.length === 0;
+    const shouldFallback =
+      rawQuery.length > 0 && semanticResult.items.length === 0;
 
     if (shouldFallback) {
       fallbackUsed = true;
@@ -963,15 +1036,17 @@ export const api = {
 
       const items = Array.from(
         new Set(
-          MOCK_CONTRACTS
-            .flatMap((contract) => [contract.name, contract.category].filter(Boolean))
-            .filter((value: string) => value.toLowerCase().includes(lowered)),
+          MOCK_CONTRACTS.flatMap((contract) =>
+            [contract.name, contract.category].filter(Boolean),
+          ).filter((value: string) => value.toLowerCase().includes(lowered)),
         ),
       )
         .slice(0, limit)
         .map((text) => ({
           text,
-          kind: MOCK_CONTRACTS.some((contract) => contract.name === text) ? 'contract' : 'category',
+          kind: MOCK_CONTRACTS.some((contract) => contract.name === text)
+            ? "contract"
+            : "category",
           score: 1,
         }));
 
@@ -988,7 +1063,10 @@ export const api = {
     );
   },
 
-  async getContract(id: string, network?: Network): Promise<ContractGetResponse> {
+  async getContract(
+    id: string,
+    network?: Network,
+  ): Promise<ContractGetResponse> {
     if (USE_MOCKS) {
       return new Promise((resolve, reject) => {
         setTimeout(() => {
@@ -1004,15 +1082,11 @@ export const api = {
       });
     }
 
-
-    return handleApiCall<Contract>(
-      () => {
-        const url = new URL(`${API_URL}/api/contracts/${id}`);
-        if (network != null) url.searchParams.set("network", String(network));
-        return fetch(url.toString());
-      },
-      `/api/contracts/${id}`
-    );
+    return handleApiCall<Contract>(() => {
+      const url = new URL(`${API_URL}/api/contracts/${id}`);
+      if (network != null) url.searchParams.set("network", String(network));
+      return fetch(url.toString());
+    }, `/api/contracts/${id}`);
   },
 
   async getContractExamples(id: string): Promise<ContractExample[]> {
@@ -1026,7 +1100,7 @@ export const api = {
 
     return handleApiCall<ContractExample[]>(
       () => fetch(`${API_URL}/api/contracts/${id}/examples`),
-      `/api/contracts/${id}/examples`
+      `/api/contracts/${id}/examples`,
     );
   },
 
@@ -1050,12 +1124,13 @@ export const api = {
     }
 
     return handleApiCall<ExampleRating>(
-      () => fetch(`${API_URL}/api/examples/${id}/rate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_address: userAddress, rating }),
-      }),
-      `/api/examples/${id}/rate`
+      () =>
+        fetch(`${API_URL}/api/examples/${id}/rate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_address: userAddress, rating }),
+        }),
+      `/api/examples/${id}/rate`,
     );
   },
 
@@ -1070,44 +1145,82 @@ export const api = {
 
     return handleApiCall<ContractVersion[]>(
       () => fetch(`${API_URL}/api/contracts/${id}/versions`),
-      `/api/contracts/${id}/versions`
+      `/api/contracts/${id}/versions`,
     );
   },
 
-  async getContractAbi(id: string, version?: string): Promise<ContractAbiResponse> {
+  async getContractAbi(
+    id: string,
+    version?: string,
+  ): Promise<ContractAbiResponse> {
     const url = new URL(`${API_URL}/api/contracts/${id}/abi`);
     if (version) url.searchParams.set("version", version);
     return handleApiCall<ContractAbiResponse>(
       () => fetch(url.toString()),
-      `/api/contracts/${id}/abi`
+      `/api/contracts/${id}/abi`,
     );
   },
 
   async getContractChangelog(id: string): Promise<ContractChangelogResponse> {
     return handleApiCall<ContractChangelogResponse>(
       () => fetch(`${API_URL}/api/contracts/${id}/changelog`),
-      `/api/contracts/${id}/changelog`
+      `/api/contracts/${id}/changelog`,
     );
   },
 
+  async compareContractVersions(
+    id: string,
+    from: string,
+    to: string,
+  ): Promise<VersionCompareResponse> {
+    const url = new URL(`${API_URL}/api/contracts/${id}/versions/compare`);
+    url.searchParams.set("from", from);
+    url.searchParams.set("to", to);
+
+    return handleApiCall<VersionCompareResponse>(
+      () => fetch(url.toString()),
+      `/api/contracts/${id}/versions/compare`,
+    );
+  },
+
+  async revertContractVersion(
+    id: string,
+    version: string,
+    payload: RevertVersionRequest,
+  ): Promise<ContractVersion> {
+    return handleApiCall<ContractVersion>(
+      () =>
+        fetch(
+          `${API_URL}/api/admin/contracts/${id}/versions/${version}/revert`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+        ),
+      `/api/admin/contracts/${id}/versions/${version}/revert`,
+    );
+  },
 
   async getContractDependencies(id: string): Promise<DependencyTreeNode[]> {
     return handleApiCall<DependencyTreeNode[]>(
       () => fetch(`${API_URL}/api/contracts/${id}/dependencies`),
-      `/api/contracts/${id}/dependencies`
+      `/api/contracts/${id}/dependencies`,
     );
   },
 
-  async getContractLocalGraph(id: string, depth?: number): Promise<GraphResponse> {
+  async getContractLocalGraph(
+    id: string,
+    depth?: number,
+  ): Promise<GraphResponse> {
     const search = new URLSearchParams();
     if (depth != null) search.set("depth", String(depth));
     const qs = search.toString();
     return handleApiCall<GraphResponse>(
       () => fetch(`${API_URL}/api/contracts/${id}/graph${qs ? `?${qs}` : ""}`),
-      `/api/contracts/${id}/graph`
+      `/api/contracts/${id}/graph`,
     );
   },
-
 
   async getContractInteractions(
     id: string,
@@ -1118,7 +1231,8 @@ export const api = {
     if (params?.offset != null) search.set("offset", String(params.offset));
     if (params?.account) search.set("account", params.account);
     if (params?.method) search.set("method", params.method);
-    if (params?.from_timestamp) search.set("from_timestamp", params.from_timestamp);
+    if (params?.from_timestamp)
+      search.set("from_timestamp", params.from_timestamp);
     if (params?.to_timestamp) search.set("to_timestamp", params.to_timestamp);
     const qs = search.toString();
     const response = await fetch(
@@ -1134,28 +1248,30 @@ export const api = {
     return response.json();
   },
 
-  async getActivityFeed(params?: ActivityFeedParams): Promise<ActivityFeedResponse> {
+  async getActivityFeed(
+    params?: ActivityFeedParams,
+  ): Promise<ActivityFeedResponse> {
     if (USE_MOCKS) {
       // Basic mock for activity feed
       const items: AnalyticsEvent[] = [
         {
-          id: '1',
-          event_type: 'contract_published',
-          contract_id: 'C123...',
-          user_address: 'G...123',
-          network: 'testnet',
-          metadata: { name: 'SorobanToken' },
+          id: "1",
+          event_type: "contract_published",
+          contract_id: "C123...",
+          user_address: "G...123",
+          network: "testnet",
+          metadata: { name: "SorobanToken" },
           created_at: new Date().toISOString(),
         },
         {
-          id: '2',
-          event_type: 'contract_verified',
-          contract_id: 'C456...',
-          user_address: 'G...456',
-          network: 'mainnet',
-          metadata: { name: 'BridgeContract' },
+          id: "2",
+          event_type: "contract_verified",
+          contract_id: "C456...",
+          user_address: "G...456",
+          network: "mainnet",
+          metadata: { name: "BridgeContract" },
           created_at: new Date(Date.now() - 3600000).toISOString(),
-        }
+        },
       ];
       return {
         items,
@@ -1174,13 +1290,18 @@ export const api = {
     const qs = search.toString();
     return handleApiCall<ActivityFeedResponse>(
       () => fetch(`${API_URL}/api/activity-feed${qs ? `?${qs}` : ""}`),
-      "/api/activity-feed"
+      "/api/activity-feed",
     );
   },
 
   async getContractRecommendations(
     id: string,
-    params?: { limit?: number; network?: Network; subject?: string; algorithm?: "hybrid_v1" | "hybrid_v2" },
+    params?: {
+      limit?: number;
+      network?: Network;
+      subject?: string;
+      algorithm?: "hybrid_v1" | "hybrid_v2";
+    },
   ): Promise<ContractRecommendationsResponse> {
     const search = new URLSearchParams();
     if (params?.limit != null) search.set("limit", String(params.limit));
@@ -1189,8 +1310,11 @@ export const api = {
     if (params?.algorithm) search.set("algorithm", params.algorithm);
 
     return handleApiCall<ContractRecommendationsResponse>(
-      () => fetch(`${API_URL}/api/contracts/${id}/recommendations${search.toString() ? `?${search.toString()}` : ""}`),
-      `/api/contracts/${id}/recommendations`
+      () =>
+        fetch(
+          `${API_URL}/api/contracts/${id}/recommendations${search.toString() ? `?${search.toString()}` : ""}`,
+        ),
+      `/api/contracts/${id}/recommendations`,
     );
   },
 
@@ -1240,7 +1364,7 @@ export const api = {
   async getContractHealth(id: string): Promise<ContractHealth> {
     return handleApiCall<ContractHealth>(
       () => fetch(`${API_URL}/api/contracts/${id}/health`),
-      `/api/contracts/${id}/health`
+      `/api/contracts/${id}/health`,
     );
   },
 
@@ -1248,12 +1372,13 @@ export const api = {
     if (USE_MOCKS) {
       return Promise.resolve({
         contract_id: id,
-        status: 'deprecated',
+        status: "deprecated",
         deprecated_at: new Date(Date.now() - 86400000 * 7).toISOString(),
         retirement_at: new Date(Date.now() + 86400000 * 30).toISOString(),
-        replacement_contract_id: 'c2',
-        migration_guide_url: 'https://example.com/migration',
-        notes: 'This contract is being retired. Migrate to the new liquidity pool contract.',
+        replacement_contract_id: "c2",
+        migration_guide_url: "https://example.com/migration",
+        notes:
+          "This contract is being retired. Migrate to the new liquidity pool contract.",
         days_remaining: 30,
         dependents_notified: 4,
       });
@@ -1261,31 +1386,37 @@ export const api = {
 
     return handleApiCall<DeprecationInfo>(
       () => fetch(`${API_URL}/api/contracts/${id}/deprecation-info`),
-      `/api/contracts/${id}/deprecation-info`
+      `/api/contracts/${id}/deprecation-info`,
     );
   },
 
-  async getFormalVerificationResults(id: string): Promise<FormalVerificationReport[]> {
+  async getFormalVerificationResults(
+    id: string,
+  ): Promise<FormalVerificationReport[]> {
     if (USE_MOCKS) {
       return Promise.resolve([]);
     }
     return handleApiCall<FormalVerificationReport[]>(
       () => fetch(`${API_URL}/api/contracts/${id}/formal-verification`),
-      `/api/contracts/${id}/formal-verification`
+      `/api/contracts/${id}/formal-verification`,
     );
   },
 
-  async runFormalVerification(id: string, data: RunVerificationRequest): Promise<FormalVerificationReport> {
+  async runFormalVerification(
+    id: string,
+    data: RunVerificationRequest,
+  ): Promise<FormalVerificationReport> {
     if (USE_MOCKS) {
-      throw new Error('Formal verification is not supported in mock mode');
+      throw new Error("Formal verification is not supported in mock mode");
     }
     return handleApiCall<FormalVerificationReport>(
-      () => fetch(`${API_URL}/api/contracts/${id}/formal-verification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      }),
-      `/api/contracts/${id}/formal-verification`
+      () =>
+        fetch(`${API_URL}/api/contracts/${id}/formal-verification`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }),
+      `/api/contracts/${id}/formal-verification`,
     );
   },
 
@@ -1293,29 +1424,36 @@ export const api = {
     if (USE_MOCKS) {
       return Promise.resolve([
         {
-          metric_name: 'custom_trades_volume',
-          metric_type: 'counter',
+          metric_name: "custom_trades_volume",
+          metric_type: "counter",
           last_seen: new Date().toISOString(),
           sample_count: 128,
         },
         {
-          metric_name: 'custom_liquidity_depth',
-          metric_type: 'gauge',
+          metric_name: "custom_liquidity_depth",
+          metric_type: "gauge",
           last_seen: new Date().toISOString(),
           sample_count: 72,
         },
       ]);
     }
 
-    const response = await fetch(`${API_URL}/api/contracts/${id}/metrics/catalog`);
-    if (!response.ok) throw new Error('Failed to fetch metrics catalog');
+    const response = await fetch(
+      `${API_URL}/api/contracts/${id}/metrics/catalog`,
+    );
+    if (!response.ok) throw new Error("Failed to fetch metrics catalog");
     return response.json();
   },
 
   async getCustomMetricSeries(
     id: string,
     metric: string,
-    options?: { resolution?: 'hour' | 'day' | 'raw'; from?: string; to?: string; limit?: number },
+    options?: {
+      resolution?: "hour" | "day" | "raw";
+      from?: string;
+      to?: string;
+      limit?: number;
+    },
   ): Promise<MetricSeriesResponse> {
     if (USE_MOCKS) {
       const now = Date.now();
@@ -1336,23 +1474,24 @@ export const api = {
       return Promise.resolve({
         contract_id: id,
         metric_name: metric,
-        metric_type: 'counter',
-        resolution: options?.resolution ?? 'hour',
+        metric_type: "counter",
+        resolution: options?.resolution ?? "hour",
         points,
       });
     }
 
     const queryParams = new URLSearchParams();
-    queryParams.append('metric', metric);
-    if (options?.resolution) queryParams.append('resolution', options.resolution);
-    if (options?.from) queryParams.append('from', options.from);
-    if (options?.to) queryParams.append('to', options.to);
-    if (options?.limit) queryParams.append('limit', String(options.limit));
+    queryParams.append("metric", metric);
+    if (options?.resolution)
+      queryParams.append("resolution", options.resolution);
+    if (options?.from) queryParams.append("from", options.from);
+    if (options?.to) queryParams.append("to", options.to);
+    if (options?.limit) queryParams.append("limit", String(options.limit));
 
     const response = await fetch(
       `${API_URL}/api/contracts/${id}/metrics?${queryParams.toString()}`,
     );
-    if (!response.ok) throw new Error('Failed to fetch metric series');
+    if (!response.ok) throw new Error("Failed to fetch metric series");
     return response.json();
   },
 
@@ -1369,7 +1508,7 @@ export const api = {
 
     return handleApiCall<Publisher>(
       () => fetch(`${API_URL}/api/publishers/${id}`),
-      `/api/publishers/${id}`
+      `/api/publishers/${id}`,
     );
   },
 
@@ -1382,7 +1521,7 @@ export const api = {
 
     return handleApiCall<Contract[]>(
       () => fetch(`${API_URL}/api/publishers/${id}/contracts`),
-      `/api/publishers/${id}/contracts`
+      `/api/publishers/${id}/contracts`,
     );
   },
 
@@ -1403,39 +1542,42 @@ export const api = {
       total_contracts: number;
       verified_contracts: number;
       total_publishers: number;
-    }>(
-      () => fetch(`${API_URL}/api/stats`),
-      '/api/stats'
-    );
+    }>(() => fetch(`${API_URL}/api/stats`), "/api/stats");
   },
 
   // Version upgrade compatibility endpoint
   async getCompatibility(id: string): Promise<CompatibilityMatrix> {
     return handleApiCall<CompatibilityMatrix>(
       () => fetch(`${API_URL}/api/contracts/${id}/compatibility`),
-      `/api/contracts/${id}/compatibility`
+      `/api/contracts/${id}/compatibility`,
     );
   },
 
-  async getInteroperability(id: string): Promise<ContractInteroperabilityResponse> {
+  async getInteroperability(
+    id: string,
+  ): Promise<ContractInteroperabilityResponse> {
     return handleApiCall<ContractInteroperabilityResponse>(
       () => fetch(`${API_URL}/api/contracts/${id}/interoperability`),
-      `/api/contracts/${id}/interoperability`
+      `/api/contracts/${id}/interoperability`,
     );
   },
 
-  async addCompatibility(id: string, data: AddCompatibilityRequest): Promise<unknown> {
+  async addCompatibility(
+    id: string,
+    data: AddCompatibilityRequest,
+  ): Promise<unknown> {
     return handleApiCall<unknown>(
-      () => fetch(`${API_URL}/api/contracts/${id}/compatibility`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      }),
-      `/api/contracts/${id}/compatibility`
+      () =>
+        fetch(`${API_URL}/api/contracts/${id}/compatibility`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }),
+      `/api/contracts/${id}/compatibility`,
     );
   },
 
-  getCompatibilityExportUrl(id: string, format: 'csv' | 'json'): string {
+  getCompatibilityExportUrl(id: string, format: "csv" | "json"): string {
     return `${API_URL}/api/contracts/${id}/compatibility/export?format=${format}`;
   },
 
@@ -1446,7 +1588,7 @@ export const api = {
     const qs = queryParams.toString();
     return handleApiCall<GraphResponse>(
       () => fetch(`${API_URL}/api/contracts/graph${qs ? `?${qs}` : ""}`),
-      '/api/contracts/graph'
+      "/api/contracts/graph",
     );
   },
 
@@ -1456,60 +1598,82 @@ export const api = {
     }
     return handleApiCall<Template[]>(
       () => fetch(`${API_URL}/api/templates`),
-      '/api/templates'
+      "/api/templates",
     );
   },
 
   // SDK / Wasm / Network Compatibility Testing (Issue #261)
-  async getCompatibilityMatrix(id: string): Promise<CompatibilityTestMatrixResponse> {
+  async getCompatibilityMatrix(
+    id: string,
+  ): Promise<CompatibilityTestMatrixResponse> {
     return handleApiCall<CompatibilityTestMatrixResponse>(
       () => fetch(`${API_URL}/api/contracts/${id}/compatibility-matrix`),
-      `/api/contracts/${id}/compatibility-matrix`
+      `/api/contracts/${id}/compatibility-matrix`,
     );
   },
 
-  async runCompatibilityTest(id: string, data: RunCompatibilityTestRequest): Promise<CompatibilityTestEntry> {
+  async runCompatibilityTest(
+    id: string,
+    data: RunCompatibilityTestRequest,
+  ): Promise<CompatibilityTestEntry> {
     return handleApiCall<CompatibilityTestEntry>(
-      () => fetch(`${API_URL}/api/contracts/${id}/compatibility-matrix/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      }),
-      `/api/contracts/${id}/compatibility-matrix/test`
+      () =>
+        fetch(`${API_URL}/api/contracts/${id}/compatibility-matrix/test`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }),
+      `/api/contracts/${id}/compatibility-matrix/test`,
     );
   },
 
-  async getCompatibilityHistory(id: string, limit?: number, offset?: number): Promise<CompatibilityHistoryResponse> {
+  async getCompatibilityHistory(
+    id: string,
+    limit?: number,
+    offset?: number,
+  ): Promise<CompatibilityHistoryResponse> {
     const params = new URLSearchParams();
-    if (limit != null) params.set('limit', String(limit));
-    if (offset != null) params.set('offset', String(offset));
+    if (limit != null) params.set("limit", String(limit));
+    if (offset != null) params.set("offset", String(offset));
     const qs = params.toString();
     return handleApiCall<CompatibilityHistoryResponse>(
-      () => fetch(`${API_URL}/api/contracts/${id}/compatibility-matrix/history${qs ? `?${qs}` : ''}`),
-      `/api/contracts/${id}/compatibility-matrix/history`
+      () =>
+        fetch(
+          `${API_URL}/api/contracts/${id}/compatibility-matrix/history${qs ? `?${qs}` : ""}`,
+        ),
+      `/api/contracts/${id}/compatibility-matrix/history`,
     );
   },
 
-  async getCompatibilityNotifications(id: string): Promise<CompatibilityNotification[]> {
+  async getCompatibilityNotifications(
+    id: string,
+  ): Promise<CompatibilityNotification[]> {
     return handleApiCall<CompatibilityNotification[]>(
-      () => fetch(`${API_URL}/api/contracts/${id}/compatibility-matrix/notifications`),
-      `/api/contracts/${id}/compatibility-matrix/notifications`
+      () =>
+        fetch(
+          `${API_URL}/api/contracts/${id}/compatibility-matrix/notifications`,
+        ),
+      `/api/contracts/${id}/compatibility-matrix/notifications`,
     );
   },
 
   async markCompatibilityNotificationsRead(id: string): Promise<unknown> {
     return handleApiCall<unknown>(
-      () => fetch(`${API_URL}/api/contracts/${id}/compatibility-matrix/notifications/read`, {
-        method: 'POST',
-      }),
-      `/api/contracts/${id}/compatibility-matrix/notifications/read`
+      () =>
+        fetch(
+          `${API_URL}/api/contracts/${id}/compatibility-matrix/notifications/read`,
+          {
+            method: "POST",
+          },
+        ),
+      `/api/contracts/${id}/compatibility-matrix/notifications/read`,
     );
   },
 
   async getCompatibilityDashboard(): Promise<CompatibilityDashboardResponse> {
     return handleApiCall<CompatibilityDashboardResponse>(
       () => fetch(`${API_URL}/api/compatibility-dashboard`),
-      '/api/compatibility-dashboard'
+      "/api/compatibility-dashboard",
     );
   },
 
@@ -1518,61 +1682,67 @@ export const api = {
   async listReleaseNotes(id: string): Promise<ReleaseNotesResponse[]> {
     return handleApiCall<ReleaseNotesResponse[]>(
       () => fetch(`${API_URL}/api/contracts/${id}/release-notes`),
-      `/api/contracts/${id}/release-notes`
+      `/api/contracts/${id}/release-notes`,
     );
   },
 
-  async getReleaseNotes(id: string, version: string): Promise<ReleaseNotesResponse> {
+  async getReleaseNotes(
+    id: string,
+    version: string,
+  ): Promise<ReleaseNotesResponse> {
     return handleApiCall<ReleaseNotesResponse>(
       () => fetch(`${API_URL}/api/contracts/${id}/release-notes/${version}`),
-      `/api/contracts/${id}/release-notes/${version}`
+      `/api/contracts/${id}/release-notes/${version}`,
     );
   },
 
   async generateReleaseNotes(
     id: string,
-    req: GenerateReleaseNotesRequest
+    req: GenerateReleaseNotesRequest,
   ): Promise<ReleaseNotesResponse> {
     return handleApiCall<ReleaseNotesResponse>(
       () =>
         fetch(`${API_URL}/api/contracts/${id}/release-notes/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(req),
         }),
-      `/api/contracts/${id}/release-notes/generate`
+      `/api/contracts/${id}/release-notes/generate`,
     );
   },
 
   async updateReleaseNotes(
     id: string,
     version: string,
-    req: UpdateReleaseNotesRequest
+    req: UpdateReleaseNotesRequest,
   ): Promise<ReleaseNotesResponse> {
     return handleApiCall<ReleaseNotesResponse>(
       () =>
         fetch(`${API_URL}/api/contracts/${id}/release-notes/${version}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(req),
         }),
-      `/api/contracts/${id}/release-notes/${version}`
+      `/api/contracts/${id}/release-notes/${version}`,
     );
   },
 
   async publishReleaseNotes(
     id: string,
     version: string,
-    req?: PublishReleaseNotesRequest
+    req?: PublishReleaseNotesRequest,
   ): Promise<ReleaseNotesResponse> {
     return handleApiCall<ReleaseNotesResponse>(
       () =>
-        fetch(`${API_URL}/api/contracts/${id}/release-notes/${version}/publish`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(req ?? { update_version_record: true }),
-        }),
-      `/api/contracts/${id}/release-notes/${version}/publish`
+        fetch(
+          `${API_URL}/api/contracts/${id}/release-notes/${version}/publish`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(req ?? { update_version_record: true }),
+          },
+        ),
+      `/api/contracts/${id}/release-notes/${version}/publish`,
     );
   },
 
@@ -1580,115 +1750,125 @@ export const api = {
   async getMigrationStatus(): Promise<MigrationStatusResponse> {
     return handleApiCall<MigrationStatusResponse>(
       () => fetch(`${API_URL}/api/admin/migrations/status`),
-      '/api/admin/migrations/status'
+      "/api/admin/migrations/status",
     );
   },
 
-  async registerMigration(data: RegisterMigrationRequest): Promise<RegisterMigrationResponse> {
+  async registerMigration(
+    data: RegisterMigrationRequest,
+  ): Promise<RegisterMigrationResponse> {
     return handleApiCall<RegisterMigrationResponse>(
-      () => fetch(`${API_URL}/api/admin/migrations/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      }),
-      '/api/admin/migrations/register'
+      () =>
+        fetch(`${API_URL}/api/admin/migrations/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }),
+      "/api/admin/migrations/register",
     );
   },
 
   async validateMigrations(): Promise<MigrationValidationResponse> {
     return handleApiCall<MigrationValidationResponse>(
       () => fetch(`${API_URL}/api/admin/migrations/validate`),
-      '/api/admin/migrations/validate'
+      "/api/admin/migrations/validate",
     );
   },
 
   async getMigrationLockStatus(): Promise<LockStatusResponse> {
     return handleApiCall<LockStatusResponse>(
       () => fetch(`${API_URL}/api/admin/migrations/lock`),
-      '/api/admin/migrations/lock'
+      "/api/admin/migrations/lock",
     );
   },
 
   async getMigrationVersion(version: number): Promise<SchemaVersion> {
     return handleApiCall<SchemaVersion>(
       () => fetch(`${API_URL}/api/admin/migrations/${version}`),
-      `/api/admin/migrations/${version}`
+      `/api/admin/migrations/${version}`,
     );
   },
 
   async rollbackMigration(version: number): Promise<RollbackResponse> {
     return handleApiCall<RollbackResponse>(
-      () => fetch(`${API_URL}/api/admin/migrations/${version}/rollback`, {
-        method: 'POST',
-      }),
-      `/api/admin/migrations/${version}/rollback`
+      () =>
+        fetch(`${API_URL}/api/admin/migrations/${version}/rollback`, {
+          method: "POST",
+        }),
+      `/api/admin/migrations/${version}/rollback`,
     );
   },
 
   // Advanced Search (Issue #51)
   async advancedSearchContracts(
-    req: AdvancedSearchRequest
+    req: AdvancedSearchRequest,
   ): Promise<PaginatedResponse<Contract>> {
     return handleApiCall<PaginatedResponse<Contract>>(
-      () => fetch(`${API_URL}/api/contracts/search`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req),
-      }),
-      '/api/contracts/search'
+      () =>
+        fetch(`${API_URL}/api/contracts/search`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(req),
+        }),
+      "/api/contracts/search",
     );
   },
 
   async listFavoriteSearches(): Promise<FavoriteSearch[]> {
     return handleApiCall<FavoriteSearch[]>(
       () => fetch(`${API_URL}/api/favorites/search`),
-      '/api/favorites/search'
+      "/api/favorites/search",
     );
   },
 
-  async saveFavoriteSearch(req: SaveFavoriteSearchRequest): Promise<FavoriteSearch> {
+  async saveFavoriteSearch(
+    req: SaveFavoriteSearchRequest,
+  ): Promise<FavoriteSearch> {
     return handleApiCall<FavoriteSearch>(
-      () => fetch(`${API_URL}/api/favorites/search`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req),
-      }),
-      '/api/favorites/search'
+      () =>
+        fetch(`${API_URL}/api/favorites/search`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(req),
+        }),
+      "/api/favorites/search",
     );
   },
 
   async deleteFavoriteSearch(id: string): Promise<void> {
     const response = await fetch(`${API_URL}/api/favorites/search/${id}`, {
-      method: 'DELETE',
+      method: "DELETE",
     });
     if (!response.ok) {
-      throw new Error(`Failed to delete favorite search: ${response.statusText}`);
+      throw new Error(
+        `Failed to delete favorite search: ${response.statusText}`,
+      );
     }
   },
 
   // ── Contract Comments / Discussion (Issue #516) ───────────────────────────
 
   async getComments(contractId: string): Promise<CommentListResponse> {
-    if (USE_MOCKS || typeof window !== 'undefined') {
+    if (USE_MOCKS || typeof window !== "undefined") {
       return Promise.resolve(getLocalComments(contractId));
     }
     return handleApiCall<CommentListResponse>(
       () => fetch(`${API_URL}/api/contracts/${contractId}/comments`),
-      `/api/contracts/${contractId}/comments`
+      `/api/contracts/${contractId}/comments`,
     );
   },
 
   async postComment(
     contractId: string,
     body: string,
-    parentId?: string
+    parentId?: string,
   ): Promise<Comment> {
-    if (USE_MOCKS || typeof window !== 'undefined') {
+    if (USE_MOCKS || typeof window !== "undefined") {
       const comment: Comment = {
         id: `local-${Date.now()}`,
         contract_id: contractId,
         parent_id: parentId ?? null,
-        author: 'You',
+        author: "You",
         body,
         created_at: new Date().toISOString(),
         score: 0,
@@ -1704,25 +1884,25 @@ export const api = {
     return handleApiCall<Comment>(
       () =>
         fetch(`${API_URL}/api/contracts/${contractId}/comments`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ body, parent_id: parentId }),
         }),
-      `/api/contracts/${contractId}/comments`
+      `/api/contracts/${contractId}/comments`,
     );
   },
 
   async voteComment(
     commentId: string,
     contractId: string,
-    direction: 'up' | 'down'
+    direction: "up" | "down",
   ): Promise<CommentVote> {
-    if (USE_MOCKS || typeof window !== 'undefined') {
+    if (USE_MOCKS || typeof window !== "undefined") {
       const stored = getLocalComments(contractId);
       stored.items = stored.items.map((c) =>
         c.id === commentId
-          ? { ...c, score: c.score + (direction === 'up' ? 1 : -1) }
-          : c
+          ? { ...c, score: c.score + (direction === "up" ? 1 : -1) }
+          : c,
       );
       setLocalComments(contractId, stored);
       return Promise.resolve({ comment_id: commentId, direction });
@@ -1730,25 +1910,25 @@ export const api = {
     return handleApiCall<CommentVote>(
       () =>
         fetch(`${API_URL}/api/comments/${commentId}/vote`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ direction }),
         }),
-      `/api/comments/${commentId}/vote`
+      `/api/comments/${commentId}/vote`,
     );
   },
 
   async flagComment(
     commentId: string,
     contractId: string,
-    reason: string
+    reason: string,
   ): Promise<CommentFlag> {
-    if (USE_MOCKS || typeof window !== 'undefined') {
+    if (USE_MOCKS || typeof window !== "undefined") {
       const stored = getLocalComments(contractId);
       stored.items = stored.items.map((c) =>
         c.id === commentId
           ? { ...c, flagged: true, flag_count: c.flag_count + 1 }
-          : c
+          : c,
       );
       setLocalComments(contractId, stored);
       return Promise.resolve({ comment_id: commentId, reason });
@@ -1756,11 +1936,11 @@ export const api = {
     return handleApiCall<CommentFlag>(
       () =>
         fetch(`${API_URL}/api/comments/${commentId}/flag`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ reason }),
         }),
-      `/api/comments/${commentId}/flag`
+      `/api/comments/${commentId}/flag`,
     );
   },
 
@@ -1772,25 +1952,25 @@ export const api = {
         fetch(`${API_URL}/api/me/preferences`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-      '/api/me/preferences'
+      "/api/me/preferences",
     );
   },
 
   async updatePreferences(
     token: string,
-    favorites: string[]
+    favorites: string[],
   ): Promise<UserFavoritesPreferences> {
     return handleApiCall<UserFavoritesPreferences>(
       () =>
         fetch(`${API_URL}/api/me/preferences`, {
-          method: 'PATCH',
+          method: "PATCH",
           headers: {
             Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({ favorites }),
         }),
-      '/api/me/preferences'
+      "/api/me/preferences",
     );
   },
 };
@@ -1839,7 +2019,6 @@ export interface GraphResponse {
   edges: GraphEdge[];
 }
 
-
 export interface ContractExample {
   id: string;
   contract_id: string;
@@ -1862,9 +2041,9 @@ export interface ExampleRating {
   created_at: string;
 }
 
-export type ProtocolComplianceStatus = 'compliant' | 'partial' | 'unsupported';
+export type ProtocolComplianceStatus = "compliant" | "partial" | "unsupported";
 
-export type InteroperabilityCapabilityKind = 'bridge' | 'adapter';
+export type InteroperabilityCapabilityKind = "bridge" | "adapter";
 
 export interface InteroperabilityProtocolMatch {
   slug: string;
@@ -1959,7 +2138,7 @@ export interface AddCompatibilityRequest {
 
 // ─── SDK / Wasm / Network Compatibility Testing (Issue #261) ─────────────────
 
-export type CompatibilityTestStatus = 'compatible' | 'warning' | 'incompatible';
+export type CompatibilityTestStatus = "compatible" | "warning" | "incompatible";
 
 export interface CompatibilityTestEntry {
   sdk_version: string;
@@ -2097,7 +2276,7 @@ export interface LockStatusResponse {
 
 // ─── Formal Verification ─────────────────────────────────────────────────────
 
-export type VerificationStatus = 'Proved' | 'Violated' | 'Unknown' | 'Skipped';
+export type VerificationStatus = "Proved" | "Violated" | "Unknown" | "Skipped";
 
 export interface FormalVerificationSession {
   id: string;
@@ -2143,8 +2322,15 @@ export interface RunVerificationRequest {
 
 // ─── Advanced Search & Favorites (Issue #51) ─────────────────────────────────
 
-export type QueryOperator = 'AND' | 'OR';
-export type FieldOperator = 'eq' | 'ne' | 'gt' | 'lt' | 'in' | 'contains' | 'starts_with';
+export type QueryOperator = "AND" | "OR";
+export type FieldOperator =
+  | "eq"
+  | "ne"
+  | "gt"
+  | "lt"
+  | "in"
+  | "contains"
+  | "starts_with";
 
 export interface QueryCondition {
   field: string;
@@ -2152,14 +2338,14 @@ export interface QueryCondition {
   value: string | number | boolean | string[];
 }
 
-export type QueryNode = 
-  | QueryCondition 
+export type QueryNode =
+  | QueryCondition
   | { operator: QueryOperator; conditions: QueryNode[] };
 
 export interface AdvancedSearchRequest {
   query: QueryNode;
-  sort_by?: ContractSearchParams['sort_by'];
-  sort_order?: ContractSearchParams['sort_order'];
+  sort_by?: ContractSearchParams["sort_by"];
+  sort_order?: ContractSearchParams["sort_order"];
   limit?: number;
   offset?: number;
 }
@@ -2198,7 +2384,7 @@ export interface Comment {
 
 export interface CommentVote {
   comment_id: string;
-  direction: 'up' | 'down';
+  direction: "up" | "down";
 }
 
 export interface CommentFlag {
@@ -2211,28 +2397,28 @@ export interface CommentListResponse {
   total: number;
 }
 
-const COMMENT_STORAGE_PREFIX = 'soroban_comments_';
+const COMMENT_STORAGE_PREFIX = "soroban_comments_";
 
 function seedComments(contractId: string): CommentListResponse {
   const now = new Date();
   const older = new Date(now.getTime() - 1000 * 60 * 60 * 24).toISOString();
   const root: Comment = {
-    id: 'seed-1',
+    id: "seed-1",
     contract_id: contractId,
     parent_id: null,
-    author: 'GDRXE7BFEBOWQ3BHPNFTUOBCIGGKCGJPNIDZWNOSIROWKJZTIVWY5WYP',
-    body: 'Great contract. Works well with the token factory. One thing to note: calling `transfer` with a zero amount will silently succeed rather than returning an error.',
+    author: "GDRXE7BFEBOWQ3BHPNFTUOBCIGGKCGJPNIDZWNOSIROWKJZTIVWY5WYP",
+    body: "Great contract. Works well with the token factory. One thing to note: calling `transfer` with a zero amount will silently succeed rather than returning an error.",
     created_at: older,
     score: 4,
     flagged: false,
     flag_count: 0,
   };
   const reply: Comment = {
-    id: 'seed-2',
+    id: "seed-2",
     contract_id: contractId,
-    parent_id: 'seed-1',
-    author: 'GCO2IP3MJNUOKS4PUDI4C7LGGMQDJGXG3COYX3WSB4HHNAHKYV5YL3VC',
-    body: 'Confirmed. Also worth checking the `allowance` return value before calling `transfer_from` — the ABI says `i128` but the error is opaque when allowance is exceeded.',
+    parent_id: "seed-1",
+    author: "GCO2IP3MJNUOKS4PUDI4C7LGGMQDJGXG3COYX3WSB4HHNAHKYV5YL3VC",
+    body: "Confirmed. Also worth checking the `allowance` return value before calling `transfer_from` — the ABI says `i128` but the error is opaque when allowance is exceeded.",
     created_at: now.toISOString(),
     score: 2,
     flagged: false,
@@ -2242,7 +2428,7 @@ function seedComments(contractId: string): CommentListResponse {
 }
 
 function getLocalComments(contractId: string): CommentListResponse {
-  if (typeof window === 'undefined') return { items: [], total: 0 };
+  if (typeof window === "undefined") return { items: [], total: 0 };
   const key = `${COMMENT_STORAGE_PREFIX}${contractId}`;
   const raw = window.localStorage.getItem(key);
   if (!raw) {
@@ -2258,7 +2444,7 @@ function getLocalComments(contractId: string): CommentListResponse {
 }
 
 function setLocalComments(contractId: string, data: CommentListResponse): void {
-  if (typeof window === 'undefined') return;
+  if (typeof window === "undefined") return;
   const key = `${COMMENT_STORAGE_PREFIX}${contractId}`;
   window.localStorage.setItem(key, JSON.stringify(data));
 }

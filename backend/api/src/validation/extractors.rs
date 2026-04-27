@@ -56,6 +56,7 @@ impl ValidationErrorResponse {
                 "correlation_id": correlation_id
             }),
             timestamp: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+            correlation_id,
         }
     }
 }

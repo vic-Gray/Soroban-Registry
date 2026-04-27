@@ -16,9 +16,9 @@ use crate::{
     state::AppState,
 };
 use shared::{
-    ContractSubscription, ContractSubscriptionSummary, CreateWebhookRequest, NotificationChannel,
-    NotificationFrequency, NotificationType, SubscribeRequest, SubscriptionStatus,
-    UpdateSubscriptionRequest, UpdateUserNotificationPreferencesRequest,
+    ContractSubscription, ContractSubscriptionSummary, CreateWebhookRequest,
+    NotificationChannel, NotificationFrequency, NotificationQueueItem, NotificationType, SubscribeRequest,
+    SubscriptionStatus, UpdateSubscriptionRequest, UpdateUserNotificationPreferencesRequest,
     UserNotificationPreferences, UserSubscriptionsResponse, WebhookConfiguration,
 };
 
@@ -172,72 +172,44 @@ pub async fn list_user_subscriptions(
     let offset = query.offset.unwrap_or(0).max(0);
     let page = (offset / per_page) + 1;
 
-    let (items, total) = if let Some(ref status) = query.status {
-        let rows = sqlx::query_as::<_, ContractSubscriptionSummary>(
-            r#"
-            SELECT cs.id, cs.contract_id, c.name AS contract_name,
-                   c.slug AS contract_slug, cs.status, cs.notification_types,
-                   cs.channels, cs.frequency, cs.created_at
-            FROM contract_subscriptions cs
-            JOIN contracts c ON cs.contract_id = c.id
-            WHERE cs.user_id = $1 AND cs.status = $2
-            ORDER BY cs.created_at DESC
-            LIMIT $3 OFFSET $4
-            "#,
-        )
-        .bind(user_id)
-        .bind(status)
-        .bind(per_page)
-        .bind(offset)
-        .fetch_all(&state.db)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+    let status_filter = query.status.as_ref();
 
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM contract_subscriptions WHERE user_id = $1 AND status = $2",
-        )
-        .bind(user_id)
-        .bind(status)
-        .fetch_one(&state.db)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-        (rows, count)
-    } else {
-        let rows = sqlx::query_as::<_, ContractSubscriptionSummary>(
-            r#"
-            SELECT cs.id, cs.contract_id, c.name AS contract_name,
-                   c.slug AS contract_slug, cs.status, cs.notification_types,
-                   cs.channels, cs.frequency, cs.created_at
-            FROM contract_subscriptions cs
-            JOIN contracts c ON cs.contract_id = c.id
-            WHERE cs.user_id = $1
-            ORDER BY cs.created_at DESC
-            LIMIT $2 OFFSET $3
-            "#,
-        )
-        .bind(user_id)
-        .bind(per_page)
-        .bind(offset)
-        .fetch_all(&state.db)
-        .await
-        .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM contract_subscriptions WHERE user_id = $1")
-                .bind(user_id)
-                .fetch_one(&state.db)
-                .await
-                .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
-
-        (rows, count)
-    };
-
-    Ok(PagedJson::new(
-        PaginatedResponse::new(items, total, page, per_page),
-        &headers,
-        &uri,
+    let subscriptions = sqlx::query_as::<_, ContractSubscriptionSummary>(&format!(
+        "SELECT cs.*, c.name as contract_name 
+         FROM contract_subscriptions cs 
+         JOIN contracts c ON cs.contract_id = c.id 
+         WHERE cs.user_id = $1 {} 
+         LIMIT ${} OFFSET ${}",
+        if status_filter.is_some() { "AND cs.status = $2" } else { "" },
+        if status_filter.is_some() { 3 } else { 2 },
+        if status_filter.is_some() { 4 } else { 3 }
     ))
+    .bind(user_id)
+    .bind(status_filter)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    let total_count: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM contract_subscriptions {}",
+        if status_filter.is_some() {
+            "WHERE user_id = $1 AND status = $2"
+        } else {
+            "WHERE user_id = $1"
+        }
+    ))
+    .bind(user_id)
+    .bind(status_filter)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
+
+    Ok(Json(UserSubscriptionsResponse {
+        subscriptions,
+        total_count,
+    }))
 }
 
 /// PATCH /api/subscriptions/:id
@@ -247,10 +219,43 @@ pub async fn update_subscription(
     auth_user: auth::AuthenticatedUser,
     Json(req): Json<UpdateSubscriptionRequest>,
 ) -> ApiResult<Json<ContractSubscription>> {
-    // Verify ownership first.
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM contract_subscriptions WHERE id = $1 AND user_id = $2)",
-    )
+    let user_id = auth_user.publisher_id;
+
+    // Build dynamic update query
+    let mut updates = Vec::new();
+    if let Some(status) = &req.status {
+        updates.push(format!("status = '{:?}'", status).to_lowercase());
+    }
+    if let Some(types) = &req.notification_types {
+        updates.push(format!("notification_types = '{:?}'", types));
+    }
+    if let Some(channels) = &req.channels {
+        updates.push(format!("channels = {:?}", channels));
+    }
+    if let Some(frequency) = &req.frequency {
+        updates.push(format!("frequency = '{}'", frequency));
+    }
+    if let Some(min_severity) = &req.min_severity {
+        updates.push(format!("min_severity = '{}'", min_severity));
+    }
+
+    updates.push("updated_at = NOW()".to_string());
+
+    if updates.len() == 1 {
+        return Err(ApiError::bad_request("EmptyUpdate", "No fields to update"));
+    }
+
+    let update_clause = updates.join(", ");
+
+    let subscription = sqlx::query_as::<_, ContractSubscription>(&format!(
+        r#"
+        UPDATE contract_subscriptions
+        SET {}
+        WHERE id = $1 AND user_id = $2
+        RETURNING *
+        "#,
+        update_clause
+    ))
     .bind(subscription_id)
     .bind(auth_user.publisher_id)
     .fetch_one(&state.db)
@@ -422,9 +427,24 @@ pub async fn update_notification_preferences(
         .map_err(|e| ApiError::internal(format!("Database error: {}", e)))?;
     }
 
-    let prefs = sqlx::query_as::<_, UserNotificationPreferences>(
-        "SELECT * FROM user_preferences WHERE publisher_id = $1",
-    )
+    updates.push(format!("updated_at = NOW()"));
+
+    if updates.len() == 1 { // Only updated_at
+        return Err(ApiError::bad_request("EmptyUpdate", "No fields to update"));
+    }
+
+    let update_clause = updates.join(", ");
+
+    // This is a simplified version - in production you'd use proper parameterized queries
+    let prefs = sqlx::query_as::<_, UserNotificationPreferences>(&format!(
+        r#"
+        UPDATE user_preferences
+        SET {}
+        WHERE publisher_id = $1
+        RETURNING *
+        "#,
+        update_clause
+    ))
     .bind(user_id)
     .fetch_one(&state.db)
     .await

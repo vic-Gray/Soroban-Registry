@@ -68,6 +68,7 @@ where
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthClaims {
     pub sub: String,
+    pub publisher_id: uuid::Uuid,
     pub iat: i64,
     pub exp: i64,
     #[serde(default)]
@@ -75,6 +76,8 @@ pub struct AuthClaims {
     #[serde(default)]
     pub admin: bool,
 }
+
+pub type AuthenticatedUser = AuthClaims;
 
 #[derive(Debug, Clone)]
 pub struct ChallengeRecord {
@@ -160,6 +163,7 @@ impl AuthManager {
         address: &str,
         public_key_hex: &str,
         signature_hex: &str,
+        publisher_id: uuid::Uuid,
     ) -> Result<String, &'static str> {
         let challenge = self
             .challenges
@@ -181,6 +185,7 @@ impl AuthManager {
         let exp = (Utc::now() + Duration::hours(24)).timestamp();
         let claims = AuthClaims {
             sub: address.to_string(),
+            publisher_id,
             iat,
             exp,
             role: None,
@@ -309,7 +314,7 @@ mod tests {
         let nonce = auth.create_challenge(&vk_hex);
         let sig = sk.sign(nonce.as_bytes());
         let token = auth
-            .verify_and_issue_jwt(&vk_hex, &vk_hex, &hex_encode(&sig.to_bytes()))
+            .verify_and_issue_jwt(&vk_hex, &vk_hex, &hex_encode(&sig.to_bytes()), uuid::Uuid::nil())
             .expect("jwt must be issued");
         let claims = auth.validate_jwt(&token).expect("token must be valid");
         assert_eq!(claims.sub, vk_hex);
@@ -324,9 +329,9 @@ mod tests {
         let nonce = auth.create_challenge(&vk_hex);
         let sig = sk.sign(nonce.as_bytes());
         let sig_hex = hex_encode(&sig.to_bytes());
-        let first = auth.verify_and_issue_jwt(&vk_hex, &vk_hex, &sig_hex);
+        let first = auth.verify_and_issue_jwt(&vk_hex, &vk_hex, &sig_hex, uuid::Uuid::nil());
         assert!(first.is_ok());
-        let second = auth.verify_and_issue_jwt(&vk_hex, &vk_hex, &sig_hex);
+        let second = auth.verify_and_issue_jwt(&vk_hex, &vk_hex, &sig_hex, uuid::Uuid::nil());
         assert!(second.is_err());
     }
 

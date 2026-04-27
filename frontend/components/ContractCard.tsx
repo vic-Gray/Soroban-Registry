@@ -1,4 +1,4 @@
-import type { Contract } from '@/lib/api';
+import type { Contract } from '@/types';
 import {
   Check,
   CheckCircle2,

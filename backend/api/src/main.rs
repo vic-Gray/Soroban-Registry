@@ -6,8 +6,7 @@ mod search_postgres;
 mod stats;
 
 mod ab_test_handlers;
-mod activity_feed_handlers;
-mod activity_feed_routes;
+mod abi_versioning_handlers;
 mod aggregation;
 mod analytics;
 mod analytics_handlers;

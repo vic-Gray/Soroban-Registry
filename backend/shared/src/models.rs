@@ -4148,6 +4148,9 @@ pub struct WebhookConfiguration {
     pub last_success_at: Option<DateTime<Utc>>,
     pub last_failure_at: Option<DateTime<Utc>>,
     pub consecutive_failures: i32,
+    /// Signing secret — only populated in the creation response, never in reads.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

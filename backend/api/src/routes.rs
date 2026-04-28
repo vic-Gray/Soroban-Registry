@@ -183,7 +183,19 @@ pub fn contract_routes() -> Router<AppState> {
             "/api/contracts/:id/audit-log",
             get(handlers::get_contract_audit_log),
         )
-        .route("/api/contracts/:id/abi", get(handlers::get_contract_abi))
+        .route(
+            "/api/contracts/:id/abi",
+            get(handlers::get_contract_abi)
+                .post(abi_versioning_handlers::publish_abi),
+        )
+        .route(
+            "/api/contracts/:id/abi/:version",
+            get(abi_versioning_handlers::get_abi_version),
+        )
+        .route(
+            "/api/contracts/:id/check-compatibility",
+            post(abi_versioning_handlers::check_compatibility),
+        )
         .route(
             "/api/contracts/:id/openapi.yaml",
             get(handlers::get_contract_openapi_yaml),

@@ -66,3 +66,9 @@ pub mod subscription_handlers;
 pub mod verification_handlers;
 pub mod websocket;
 pub mod zk_proof_handlers;
+
+// New modules for feature tasks
+pub mod ai;
+pub mod state_monitor;
+pub mod search_postgres;
+pub mod stats;

@@ -100,33 +100,18 @@ pub enum Commands {
         export: Option<String>,
     },
 
-    /// Search for contracts in the registry
-    Search {
-        /// Search query
-        query: String,
-        /// Only show verified contracts
+    /// Get comprehensive registry statistics
+    Stats {
+        /// Timeframe: 7d, 30d, or all (default: all)
+        #[arg(long, default_value = "all")]
+        timeframe: String,
+        /// Output format: table, json, yaml
+        #[arg(long, default_value = "table")]
+        format: String,
+        /// Export to file
         #[arg(long)]
-        verified_only: bool,
-        /// Filter by one or more networks (comma-separated: mainnet,testnet,futurenet)
-        #[arg(long)]
-        network: Option<String>,
-        /// Filter by contract category (e.g. DEX, token, lending, oracle)
-        #[arg(long)]
-        category: Option<String>,
-        /// Sort field (e.g. name, created_at, network)
-        #[arg(long)]
-        sort: Option<String>,
-        /// Maximum number of results to return
-        #[arg(long, default_value = "20")]
-        limit: usize,
-        /// Number of results to skip (for pagination)
-        #[arg(long, default_value = "0")]
-        offset: usize,
-        /// Output results as machine-readable JSON
-        #[arg(long)]
-        json: bool,
+        output: Option<String>,
     },
-
 
     /// Publish a new contract to the registry
     Publish {
